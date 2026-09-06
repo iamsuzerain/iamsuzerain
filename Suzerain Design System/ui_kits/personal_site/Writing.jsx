@@ -55,8 +55,7 @@ function Writing({ slug }) {
     setBody(null);
     if (!post) return;
     let canceled = false;
-    fetch(`data/posts/${post.slug}.md`, { cache: 'no-store' })
-      .then(r => { if (!r.ok) throw new Error('post ' + r.status); return r.text(); })
+    window.szText(`data/posts/${post.slug}.md`)
       .then(t => { if (!canceled) setBody(t); })
       .catch(() => { if (!canceled) setErr('post not found'); });
     return () => { canceled = true; };

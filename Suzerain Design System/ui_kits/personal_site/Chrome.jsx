@@ -42,6 +42,40 @@ function useDecode(target, duration = 400, startDelay = 0) {
   return text;
 }
 
+// ---------- static feed cache ----------
+// Every view fetches its own feeds on mount and the router unmounts a view the
+// moment you leave it, so the fetches ran again on the way back. ibkr → overview
+// → ibkr pulled portfolio.json, benchmarks.json, nav-history.json and
+// riskfree.json down three times each — 430KB for the first load became 1.3MB
+// for two clicks, and benchmarks.json is 300KB of that on its own.
+//
+// Politics.jsx had already solved this for its own two files with a hand-rolled
+// POL_CACHE; this is that, shared, so every feed gets it.
+//
+// What is cached is the fetch within one document, not the file across visits:
+// `no-store` stays on the request, so a reload still skips the HTTP cache and
+// pulls the morning's numbers. A rejection is evicted rather than kept, so a
+// feed that was down when one view asked is retried by the next view instead of
+// being remembered as broken for the rest of the session.
+const SZ_FEED_CACHE = new Map();
+// `as` is spelled out rather than taken from the reader function's name: the
+// production build minifies these files, and a mangled function name is not a
+// stable cache key.
+function szCachedFetch(url, as) {
+  const key = as + ' ' + url;
+  const hit = SZ_FEED_CACHE.get(key);
+  if (hit) return hit;
+  const p = fetch(url, { cache: 'no-store' })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r[as](); })
+    .catch(err => { SZ_FEED_CACHE.delete(key); throw err; });
+  SZ_FEED_CACHE.set(key, p);
+  return p;
+}
+// Rejects on a bad status or unparseable body — callers that treat a feed as
+// optional catch it, callers that cannot proceed without it surface it.
+function szJson(url) { return szCachedFetch(url, 'json'); }
+function szText(url) { return szCachedFetch(url, 'text'); }
+
 // Blinking magenta cursor ▋
 function Cursor({ className = '' }) {
   return <span className={`sz-cursor ${className}`}>▋</span>;
@@ -953,3 +987,5 @@ window.szPmBookDivergence = szPmBookDivergence;
 window.szPnlFirstMoveIndex = szPnlFirstMoveIndex;
 window.szPnlLifeStartDay = szPnlLifeStartDay;
 window.szPmIncomeCurve = szPmIncomeCurve;
+window.szJson = szJson;
+window.szText = szText;

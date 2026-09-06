@@ -328,11 +328,11 @@ function cmbPmPoints(rows, bdRows, transfers) {
 }
 
 // Best-effort JSON GET: resolves to null on any failure so a missing optional
-// feed never rejects the Promise.all that the loader fans out with.
+// feed never rejects the Promise.all that the loader fans out with. The fetch
+// underneath is szJson, so a feed the ibkr or polymarket view already pulled is
+// not pulled again on the way here.
 function cmbGetJson(url) {
-  return fetch(url, { cache: 'no-store' })
-    .then(r => (r.ok ? r.json() : null))
-    .catch(() => null);
+  return window.szJson(url).catch(() => null);
 }
 
 // All-source polymarket income beyond trading (lp + maker/taker rebates + yield
@@ -1651,7 +1651,7 @@ function Combined({ setView }) {
       // which on a slow link is most of the time spent on "merging feeds".
       // Only the two genuine fallbacks (pnl snapshot, clob rewards) stay lazy —
       // they fire only when their primary comes back empty.
-      const pPromise    = fetch('data/portfolio.json', { cache: 'no-store' });
+      const pPromise    = window.szJson('data/portfolio.json');
       // `null` for a wallet whose call failed, so the sum below can tell that
       // apart from a wallet with no history. Summing a failed wallet as zero
       // silently drops its entire book out of the polymarket curve — the two
@@ -1674,9 +1674,7 @@ function Combined({ setView }) {
       const breakdownP  = cmbGetJson('data/polymarket-breakdown.json');
       const bdHistP     = cmbGetJson('data/polymarket-breakdown-history.json');
 
-      const pRes = await pPromise;
-      if (!pRes.ok) throw new Error('portfolio ' + pRes.status);
-      const portfolio = await pRes.json();
+      const portfolio = await pPromise;
 
       // Polymarket: live API per wallet (summed), fall back to the daily snapshot
       // cron. All-or-nothing: a partial live answer is discarded rather than
@@ -1842,7 +1840,7 @@ function Combined({ setView }) {
             the two still add to the headline exactly (see cmbPctSeries). A
             return on the book's own capital would be a different question, and
             one the polymarket page already answers. */}
-        <CmbStat label="ibkr" value={fmt(vIbkr)} tone={tone(vIbkr)} onClick={go('portfolio')}
+        <CmbStat label="ibkr" value={fmt(vIbkr)} tone={tone(vIbkr)} onClick={go('ibkr')}
           note={pct ? 'deposit-adjusted · contribution' : 'deposit-adjusted'}/>
         <CmbStat label="polymarket" value={fmt(vPm)} tone={tone(vPm)} onClick={go('polymarket')}
           note={pct ? `${rangeNote} · contribution` : rangeNote}/>

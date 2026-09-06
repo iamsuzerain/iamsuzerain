@@ -10,15 +10,17 @@ These are the components loaded by `index.html` (via `<script type="text/babel">
 - `Nav.jsx` — horizontal mono nav with active `→` indicator
 - `Hero.jsx` — landing log/feed (the default `hero` view); also owns the stream row and the log/post merge that `Writing.jsx` reuses
 - `About.jsx` — prose page, max-width reading column
-- `Portfolio.jsx` — IBKR portfolio view (chart + holdings)
+- `Portfolio.jsx` — IBKR portfolio view (chart + holdings); the `ibkr` route
 - `Polymarket.jsx` — Polymarket P&L view
-- `Combined.jsx` — combined IBKR + Polymarket overview
+- `Combined.jsx` — combined IBKR + Polymarket overview; the `overview` route
 - `Writing.jsx` — `thoughts` view: the full stream + markdown reader
 - `App.jsx` — root: hash router + view switcher; loads `content.json` and mounts the tree
 
 ## Views
 
-No routing library — `App` parses `window.location.hash` (`#/view`, or `#/thoughts/<slug>` for a post) into a `{ view, param }` and re-parses on `hashchange`, so views and posts have shareable URLs. Landing is the log (`Hero`); the nav switches between `about`, `portfolio`, `polymarket`, `combined`, and `thoughts`.
+No routing library — `App` parses `window.location.hash` (`#/view`, or `#/thoughts/<slug>` for a post) into a `{ view, param }` and re-parses on `hashchange`, so views and posts have shareable URLs. Landing is the log (`Hero`); the nav switches between `overview`, `ibkr`, `polymarket`, `politics`, `thoughts`, and `about`.
+
+The route key is the word in the nav, not the component's name — `overview` mounts `Combined.jsx` and `ibkr` mounts `Portfolio.jsx`. Those two were once routed under their component names; `ROUTE_ALIASES` in `App.jsx` still maps `combined` and `portfolio` onto them so URLs shared before the rename keep working.
 
 The shell paints immediately with placeholder content; `App` fetches `content.json` and `data/posts/index.json` after first paint and re-renders to fill in `Hero`/`About`/`Writing`.
 

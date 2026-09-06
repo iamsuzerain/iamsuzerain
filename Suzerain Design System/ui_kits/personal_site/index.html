@@ -221,12 +221,16 @@
     border-color: rgba(167,139,250,0.30);
     box-shadow: 0 10px 30px -12px rgba(0,0,0,0.95);
   }
+  /* An <a> now, so the global link rules apply to it: the brand would otherwise
+     inherit --link and go magenta on hover. It keeps the flat look it had as a
+     button — the wordmark is not a link you follow, it is where you already are. */
   .sz-brand {
     display: flex; align-items: center; gap: 10px;
     font-family: var(--font-mono); font-size: 15px; font-weight: 500;
     color: var(--fg-1); background: transparent; border: 0; cursor: pointer;
     padding: 0; letter-spacing: -0.01em;
   }
+  .sz-brand:hover { color: var(--fg-1); }
   .sz-nav-items { display: flex; gap: 20px; margin-left: 20px; flex: 1; }
   .sz-nav-item {
     background: transparent; border: 0; cursor: pointer;
@@ -330,14 +334,26 @@
      on the overview was a red line lying across a chart with no visible source
      anywhere around it. Match the dim rather than fight it: 0.92 x 0.85 = 0.78
      leaves the pane recessed from the photo it sits on, which is what glass
-     over a dimmed view should do. The hero keeps the 120% it was tuned for. */
+     over a dimmed view should do. The hero keeps the 120% it was tuned for.
+
+     brightness() is the part that makes the numbers readable. These panes are
+     45% opaque, so 55% of whatever is behind them lands in the text's
+     background — and behind them is a night skyline whose bright patches (the
+     lit tower, the signage bands) are nowhere near the --ink-1 the type ladder
+     was measured against. --fg-4 is documented at 4.8:1 on --ink-1; over a lit
+     patch of photo the same swatch was measuring closer to 2.5:1, which is why
+     the stat kickers washed out on exactly the cards the skyline sat behind and
+     nowhere else. Raising the alpha would fix it by deleting the view, which is
+     the one thing these panes exist for. Dimming the backdrop instead keeps the
+     city legible through the glass and puts the type back on the surface the
+     ladder assumes: ~4.5:1 in the worst case, ~5.2:1 over ordinary sky. */
   .sz-dim .sz-surface,
   .sz-dim .sz-prose,
   .sz-dim .pf-head,
   .sz-dim .pf-stat,
   .sz-dim .pf-panel {
-    backdrop-filter: blur(20px) saturate(85%);
-    -webkit-backdrop-filter: blur(20px) saturate(85%);
+    backdrop-filter: blur(20px) saturate(85%) brightness(0.45);
+    -webkit-backdrop-filter: blur(20px) saturate(85%) brightness(0.45);
   }
 
   /* The page header sits nearest the viewer — a touch more opaque, lit a
@@ -936,19 +952,28 @@
   .pf-type-badge[data-type="ETF"]    { border-color: rgba(196,181,253,0.4); color: rgba(196,181,253,0.9); }
   .pf-type-badge[data-type="ADR"]    { border-color: rgba(196,181,253,0.35); color: rgba(196,181,253,0.85); }
 
+  /* Everything else on these views sits on a pane; this note did not, so it was
+     11px of --fg-4 laid straight over the skyline. Where the photo went bright
+     behind it the line simply stopped being readable — worst on a phone, where
+     it wraps across the widest part of the view. It gets the same glass as the
+     panels it introduces rather than a color bump, because the problem was the
+     backdrop, not the swatch. */
   .pf-footer {
     font-family: var(--font-mono); font-size: 11px;
-    color: var(--fg-4); letter-spacing: 0.06em;
-    margin-top: 32px; padding-top: 20px;
-    border-top: 1px solid var(--border-soft);
+    color: var(--fg-3); letter-spacing: 0.06em;
+    margin-top: 32px; padding: 10px 14px;
+    background: rgba(10,6,18,0.45);
+    backdrop-filter: blur(20px) saturate(85%) brightness(0.45);
+    -webkit-backdrop-filter: blur(20px) saturate(85%) brightness(0.45);
+    border: 1px solid rgba(167,139,250,0.14);
+    border-top-color: rgba(214,199,255,0.22);
+    border-radius: var(--r-1);
     display: flex; flex-wrap: wrap; gap: 2px;
   }
-  /* Same note, hoisted above the panels — the rule flips to the underside so it
-     still reads as a divider between the note and the content it introduces. */
+  /* Same note, hoisted above the panels. It is a pane now, so the divider rule
+     it used to carry would only double the border it already has. */
   .pf-footer.pf-note-top {
     margin-top: 0; margin-bottom: 24px;
-    padding-top: 0; padding-bottom: 14px;
-    border-top: none; border-bottom: 1px solid var(--border-soft);
   }
 
   @media (max-width: 760px) {

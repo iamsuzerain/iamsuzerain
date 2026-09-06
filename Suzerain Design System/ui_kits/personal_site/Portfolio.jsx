@@ -1315,24 +1315,20 @@ function Portfolio() {
   const [benchKeys, setBenchKeys] = usePortState(window.SZ_BENCH_DEFAULT || ['spx']);
 
   usePortEffect(() => {
-    fetch('data/portfolio.json', { cache: 'no-store' })
-      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    window.szJson('data/portfolio.json')
       .then(setData)
       .catch(e => setErr(String(e)));
     // Benchmark overlay is best-effort; the chart renders fine without it.
-    fetch('data/benchmarks.json', { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : null)
+    window.szJson('data/benchmarks.json')
       .then(b => { if (b && b.benchmarks) setBench(b.benchmarks); })
       .catch(() => {});
     // Accumulated multi-year history (best-effort) — extends the curve under MAX.
-    fetch('data/nav-history.json', { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : null)
+    window.szJson('data/nav-history.json')
       .then(h => { if (h && h.rows) setHist(h); })
       .catch(() => {});
     // Fed funds (best-effort). Without it the risk tiles fall back to rf 0 and
     // say so, rather than holding the whole panel hostage to one small file.
-    fetch('data/riskfree.json', { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : null)
+    window.szJson('data/riskfree.json')
       .then(j => { if (j && j.series && j.series.length) setRf(j.series); })
       .catch(() => {});
   }, []);

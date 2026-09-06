@@ -17,7 +17,15 @@ function useStuck(threshold = 8) {
   return stuck;
 }
 
-function Nav({ view, setView }) {
+// Views are hash routes, so every nav destination already has a URL. Rendering
+// them as <a href> rather than <button onClick> costs nothing and hands back the
+// things people expect a link to do: middle-click and cmd-click to a new tab,
+// right-click to copy the address, the destination in the status bar on hover.
+// The hash assignment a click used to make is what the browser does natively on
+// following the href, and App's hashchange listener routes it either way.
+function navHref(id) { return id === 'hero' ? '#/' : '#/' + id; }
+
+function Nav({ view }) {
   const stuck = useStuck();
   // Whatever view is mounted publishes its $/% switch into Chrome.jsx's slot;
   // the nav hosts it so the control rides the scroll rather than sitting in a
@@ -28,8 +36,8 @@ function Nav({ view, setView }) {
   const NavUnitToggle = window.UnitToggle;
   const items = [
     { id: 'hero', label: 'home' },
-    { id: 'combined', label: 'overview' },
-    { id: 'portfolio', label: 'ibkr' },
+    { id: 'overview', label: 'overview' },
+    { id: 'ibkr', label: 'ibkr' },
     { id: 'polymarket', label: 'polymarket' },
     { id: 'politics', label: 'politics' },
     { id: 'thoughts', label: 'thoughts' },
@@ -37,7 +45,7 @@ function Nav({ view, setView }) {
   ];
   return (
     <nav className={`sz-nav ${stuck ? 'sz-nav-stuck' : ''}`}>
-      <button className="sz-brand" onClick={() => setView('hero')}>
+      <a className="sz-brand" href={navHref('hero')}>
         <svg width="22" height="22" viewBox="0 0 64 64" fill="none" aria-hidden>
           <defs>
             <linearGradient id="ng" x1="0" y1="0" x2="1" y2="1">
@@ -56,17 +64,18 @@ function Nav({ view, setView }) {
         </svg>
         <span>suzerain</span>
         <Cursor />
-      </button>
+      </a>
       <div className="sz-nav-items">
         {items.slice(1).map((it) => (
-          <button
+          <a
             key={it.id}
             className={`sz-nav-item ${view === it.id ? 'active' : ''}`}
-            onClick={() => setView(it.id)}
+            href={navHref(it.id)}
+            aria-current={view === it.id ? 'page' : undefined}
           >
             {view === it.id && <span className="sz-nav-arrow">→ </span>}
             {it.label}
-          </button>
+          </a>
         ))}
       </div>
       {unit && NavUnitToggle && (

@@ -104,47 +104,41 @@ function pmParseBetmoar(html) {
 async function pmFetchBreakdown() {
   // Primary: polymarket-breakdown.json written by betmoar-refresh workflow
   try {
-    const r = await fetch('data/polymarket-breakdown.json', { cache: 'no-store' });
-    if (r.ok) {
-      const bd = await r.json();
-      if (bd.totals) {
-        return {
-          trading:   bd.totals.trading,
-          lp:        bd.totals.lp,
-          yield:     bd.totals.yield,
-          maker:     bd.totals.maker,
-          taker:     bd.totals.taker,
-          sponsored: bd.totals.sponsored,
-          uma:       bd.totals.uma,
-          fees:      bd.totals.fees,
-          // Full Polymarket NAV (open positions + idle USDC) from the daily
-          // snapshot; used as portfolio value so it matches the overview's
-          // capital-deployment bar exactly.
-          nav:       bd.balances ? bd.balances.nav : null,
-          source:    'betmoar',
-        };
-      }
+    const bd = await window.szJson('data/polymarket-breakdown.json');
+    if (bd.totals) {
+      return {
+        trading:   bd.totals.trading,
+        lp:        bd.totals.lp,
+        yield:     bd.totals.yield,
+        maker:     bd.totals.maker,
+        taker:     bd.totals.taker,
+        sponsored: bd.totals.sponsored,
+        uma:       bd.totals.uma,
+        fees:      bd.totals.fees,
+        // Full Polymarket NAV (open positions + idle USDC) from the daily
+        // snapshot; used as portfolio value so it matches the overview's
+        // capital-deployment bar exactly.
+        nav:       bd.balances ? bd.balances.nav : null,
+        source:    'betmoar',
+      };
     }
   } catch {}
 
   // Fallback: polymarket-rewards.json (maker + LP via CLOB script)
   try {
-    const r = await fetch('data/polymarket-rewards.json', { cache: 'no-store' });
-    if (r.ok) {
-      const rw = await r.json();
-      if (rw.totals && (rw.totals.makerRebates || rw.totals.liquidityRewards)) {
-        return {
-          trading:   null,
-          lp:        Math.round(rw.totals.liquidityRewards || 0),
-          yield:     0,
-          maker:     Math.round(rw.totals.makerRebates || 0),
-          taker:     0,
-          sponsored: 0,
-          uma:       0,
-          fees:      0,
-          source:    'json',
-        };
-      }
+    const rw = await window.szJson('data/polymarket-rewards.json');
+    if (rw.totals && (rw.totals.makerRebates || rw.totals.liquidityRewards)) {
+      return {
+        trading:   null,
+        lp:        Math.round(rw.totals.liquidityRewards || 0),
+        yield:     0,
+        maker:     Math.round(rw.totals.makerRebates || 0),
+        taker:     0,
+        sponsored: 0,
+        uma:       0,
+        fees:      0,
+        source:    'json',
+      };
     }
   } catch {}
 
@@ -159,9 +153,7 @@ async function pmFetchBreakdown() {
 // P&L figures and the chart have something true to draw on the first tick.
 async function pmFetchPnlSnapshot() {
   try {
-    const r = await fetch('data/polymarket-pnl.json', { cache: 'no-store' });
-    if (!r.ok) return null;
-    const j = await r.json();
+    const j = await window.szJson('data/polymarket-pnl.json');
     if (!j || !Array.isArray(j.rows) || !j.rows.length) return null;
     return { rows: j.rows, source: 'snapshot', generatedAt: j.generatedAt || null };
   } catch { return null; }
@@ -1369,16 +1361,14 @@ function Polymarket() {
       });
     // Calibration dataset (polymarket-calibration daily cron). Best-effort and
     // independent of the live fetch — the panel renders only when present.
-    fetch('data/polymarket-calibration.json', { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : null)
+    window.szJson('data/polymarket-calibration.json')
       .then(j => { if (!canceled && j) setCal(j); })
       .catch(() => {});
     // Rewards-accrual history (betmoar breakdown daily cron). Best-effort; the
     // panel renders only when the history file is present. Row dates are restated
     // to close-of-day here so the income curve, the accrual chart and the "since"
     // captions all read the same convention as the P&L series.
-    fetch('data/polymarket-breakdown-history.json', { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : null)
+    window.szJson('data/polymarket-breakdown-history.json')
       .then(j => {
         if (canceled || !j) return;
         setHist({ ...j, rows: window.szPmDateSnapshotRows(j.rows) });
@@ -1387,8 +1377,7 @@ function Polymarket() {
     // NAV history rides the same ~08:45 UTC betmoar scrape as the breakdown
     // history, so its rows get the same date restatement — a denominator read
     // off the wrong day would shift every return in percent mode.
-    fetch('data/polymarket-nav-history.json', { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : null)
+    window.szJson('data/polymarket-nav-history.json')
       .then(j => {
         if (canceled || !j || !Array.isArray(j.rows)) return;
         setNavRows(window.szPmDateSnapshotRows(j.rows));
@@ -1396,8 +1385,7 @@ function Polymarket() {
       .catch(() => {});
     // Same ledger the overview reads for its benchmark notional; here it is the
     // flow term in the book-value walk.
-    fetch('data/content.json', { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : null)
+    window.szJson('data/content.json')
       .then(j => {
         if (canceled || !j) return;
         setPmTransfers(j.pmTransfers || []);

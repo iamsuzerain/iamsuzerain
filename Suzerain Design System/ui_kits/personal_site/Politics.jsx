@@ -373,12 +373,8 @@ function Politics({ scope: routeScope }) {
     const src = POL_SCOPES.find(s => s.id === scope);
     let canceled = false;
     Promise.all([
-      POL_CACHE.log
-        ? Promise.resolve(POL_CACHE.log)
-        : fetch('data/politics.json', { cache: 'no-store' }).then(r => r.json()),
-      POL_CACHE[scope]
-        ? Promise.resolve(POL_CACHE[scope])
-        : fetch(src.file, { cache: 'no-store' }).then(r => r.json()),
+      window.szJson('data/politics.json'),
+      window.szJson(src.file),
     ])
       .then(([logData, geoData]) => {
         POL_CACHE.log = logData;
