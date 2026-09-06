@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Depth 1 is enough: this needs the tip commit's timestamp, nothing older.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: compare published bundle against main
         env:

@@ -38,11 +38,14 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      # 24, not 20: Node 20 went end-of-life in April 2026 and the runner now
+      # force-runs Node 20 actions on 24 anyway. This pin is the build's own
+      # runtime rather than the actions', so it does not move on its own.
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       # esbuild is the only network dependency in the build, and it is a big one:
       # the package declares 25 optional @esbuild/* platform deps (so npm fetches
@@ -53,7 +56,7 @@ jobs:
       # install) and preferring it over revalidation keeps the registry off the
       # critical path once the key is warm.
       - name: cache npm
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.npm
           key: npm-esbuild-0.25.0
@@ -142,10 +145,10 @@ jobs:
       # site served six-hour-old content with nothing to show anything was wrong.
       # No branch, no Jekyll, and a failure here fails this workflow.
       - name: upload site artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: "Suzerain Design System/ui_kits/personal_site"
 
       - name: deploy to pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
