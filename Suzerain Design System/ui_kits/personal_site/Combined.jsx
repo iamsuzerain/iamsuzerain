@@ -670,7 +670,22 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
       // halves, so it stays the figure every window's notional has always been.
       base: +(ibkrL + pmL).toFixed(2),
       ibkrLevel: +ibkrL.toFixed(2),
-      pmLevel: +pmL.toFixed(2),
+      // null, not zero, before polymarket's nav history begins. pmCapitalAt
+      // falls back to the transfer ledger there, and the ledger opens on
+      // 2026-01-09 — so every earlier day reads $0 while the user-pnl feed,
+      // which goes back to 2024-11-28, has the book already ±$4.5k. A zero band
+      // under a P&L line that moves is a claim that the book traded on no
+      // capital, and it is not one the data supports: polymarket was funded
+      // from outside the ledger and the true level for those days is unknown,
+      // not nothing. The chart drops what it cannot split (cmbCapitalPoints).
+      //
+      // `base` above is deliberately untouched and stays ibkrLevel + 0. It is
+      // the denominator of every percent return on this page and the notional
+      // of every window, both since long before the split was carried; the true
+      // pre-2026 polymarket level is low four figures against a ~$640k base, so
+      // the fallback is a rounding error there and a false statement only when
+      // drawn as a band of its own.
+      pmLevel: (pmFloor != null && day >= pmFloor) ? +pmL.toFixed(2) : null,
     };
     for (const b of bench) pt[b.key] = +b.vals[k].toFixed(2);
     series.push(pt);
@@ -1440,6 +1455,14 @@ function CmbStat({ label, value, tone, onClick, note }) {
   );
 }
 
+// The days both halves of the base are measured, which is where the capital
+// chart can honestly draw a split. Always a suffix of the window — pmLevel is
+// null strictly before polymarket's nav history begins — so filtering leaves a
+// contiguous series rather than a gapped one.
+function cmbCapitalPoints(series) {
+  return (series || []).filter(p => p.ibkrLevel != null && p.pmLevel != null);
+}
+
 // ---------- capital deployed over time ----------
 // Where the money is, and when it moved. This replaced a tug-of-war bar that
 // showed the same split as a single ratio for one day only: two ends, a flag,
@@ -1462,10 +1485,7 @@ const CMB_CAP_FRAME = szFrame(160, 16, 28);
 function CmbCapitalChart({ series, transfers }) {
   const F = CMB_CAP_FRAME;
   const hv = useChartHover(F);
-  // A window that predates the level feeds carries no split (see pmCapitalAt),
-  // and half a stack is worse than no chart: the pink band would be missing
-  // rather than zero, and the violet one would read as the whole book.
-  const pts = (series || []).filter(p => p.ibkrLevel != null && p.pmLevel != null);
+  const pts = cmbCapitalPoints(series);
   if (pts.length < 2) return null;
 
   const ibkrVals = pts.map(p => p.ibkrLevel);
@@ -1948,6 +1968,13 @@ function Combined({ setView }) {
   // Lifetime, not windowed: it labels the ledger the ticks come from, and a sum
   // that shrank when the reader picked 1M would look like money coming back.
   const xferTotal = (data.transfers || []).reduce((sum, t) => sum + ((t && t.amount) || 0), 0);
+  // The capital chart spans only the days the split is measured, which on any
+  // window reaching back past 2026-01-09 is a suffix of the range every other
+  // panel draws. Said in the meta rather than left for the reader to notice
+  // that one x-axis on the page starts somewhere else.
+  const capPts = cmbCapitalPoints(win.series);
+  const capFrom = (capPts.length > 1 && win.series.length && capPts[0].d !== win.series[0].d)
+    ? capPts[0].d : null;
 
   return (
     <section className="pf-wrap cmb-view">
@@ -2097,12 +2124,12 @@ function Combined({ setView }) {
         </div>
       )}
 
-      {data.hasLevels && (
+      {data.hasLevels && capPts.length > 1 && (
         <div className="pf-panel">
           <div className="pf-panel-head">
             <span className="pf-panel-title">capital deployed · {cmbRangeLabel(range)}</span>
             <span className="pf-panel-meta">
-              ibkr nav + polymarket nav · diamonds are transfers
+              ibkr nav + polymarket nav{capFrom ? ` from ${cmbFullDate(capFrom)}` : ''} · diamonds are transfers
               {xferTotal > 0 ? `, ${cmbUSDk(xferTotal)} to date` : ''}
             </span>
           </div>
