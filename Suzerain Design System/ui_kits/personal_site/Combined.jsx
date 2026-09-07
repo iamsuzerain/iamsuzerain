@@ -557,6 +557,25 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
   }
   const pmNavDays = [...pmNavByDay.keys()].sort((a, b) => a - b);
   const pmFloor = pmNavDays.length ? pmNavDays[0] : null;
+  // The ledger opens mid-life, so its first entry is an opening balance wearing
+  // a date rather than a wire that moved that day: every earlier move to
+  // polymarket is condensed onto it. The arithmetic says so outright — the
+  // derived rows satisfy nav = transfersThrough + cumPnl + 1044.56 exactly, so
+  // the day before that entry implies a NAV of -$3,468, which no book held.
+  //
+  // Drawn, that condensation is a $6,500 step onto a $3,031 level on a day when
+  // nothing of the sort happened. So the split is only charted from the first
+  // ledger entry onward, where an entry means what it says. Earlier days keep
+  // their level in `base` (where a four-figure polymarket book against a $640k
+  // base is a rounding error) and simply aren't split.
+  const firstXferDay = (pmTransfers || []).reduce((min, t) => {
+    if (!t || !t.date) return min;
+    const d = cmbEpochDay(t.date);
+    return min == null || d < min ? d : min;
+  }, null);
+  const splitFloor = (pmFloor != null && firstXferDay != null)
+    ? Math.max(pmFloor, firstXferDay)
+    : pmFloor;
   //
   // One correction on the way out. Every scraped polymarket row is restated back
   // a day (szPmSnapshotDay) on the premise that a morning scrape reports through
@@ -583,7 +602,23 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
     }
     const at = pmNavDays[best];
     const level = pmNavByDay.get(at);
-    return at === day ? level - transfersOn(day + 1) : level;
+    if (at !== day) return level;
+    const t = transfersOn(day + 1);
+    if (!t) return level;
+    // Structurally, a restated row for day D IS the raw row for D+1, and the raw
+    // rows are aligned with the ledger — so a row dated D always contains a
+    // transfer dated D+1, whatever that day's P&L did to the level. Testing for
+    // a visible step instead was wrong: on 2026-05-07 the book fell $1,039 while
+    // an $1,850 wire landed, the step came out negative, and the correction was
+    // skipped on a day that needed it.
+    //
+    // Two structural guards, no thresholds. `best > 0` skips the first row of
+    // the series, which is the anchor of a walk-back reconstruction and where
+    // the ledger's condensed opening entry lands — subtracting there returns
+    // -$3,468 of capital. The floor check refuses any result no book could hold,
+    // which is the same failure caught a second way.
+    const corrected = level - t;
+    return (best > 0 && corrected >= 0) ? corrected : level;
   };
   // Both level feeds stop before the P&L does. IBKR posts at the close, so a
   // weekend has no rows at all; a polymarket scrape on day D reports through the
@@ -685,7 +720,7 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
       // pre-2026 polymarket level is low four figures against a ~$640k base, so
       // the fallback is a rounding error there and a false statement only when
       // drawn as a band of its own.
-      pmLevel: (pmFloor != null && day >= pmFloor) ? +pmL.toFixed(2) : null,
+      pmLevel: (splitFloor != null && day >= splitFloor) ? +pmL.toFixed(2) : null,
     };
     for (const b of bench) pt[b.key] = +b.vals[k].toFixed(2);
     series.push(pt);
@@ -1512,7 +1547,12 @@ function CmbCapitalChart({ series, transfers }) {
   const ibkrArea = `${ibkrLine} L${x(last).toFixed(2)},${y(0).toFixed(2)} L${x(0).toFixed(2)},${y(0).toFixed(2)} Z`;
   const pmArea = `${totalLine}${backOf(ibkrVals)} Z`;
 
-  const marks = cmbTransferMarks(pts, transfers);
+  // A mark on the first plotted column has no before-state to point at: whatever
+  // step it caused is off the left edge, so it reads as an event that did
+  // nothing. Dropped rather than drawn — which is also what takes the ledger's
+  // condensed opening entry off the chart, since the split is floored on its
+  // date (see splitFloor).
+  const marks = cmbTransferMarks(pts, transfers).filter(m => m.i > 0);
   const ticks = szTicks(pts, 6);
   const spanDays = cmbEpochDay(pts[last].d) - cmbEpochDay(pts[0].d);
   const axisMode = spanDays <= 95 ? 'day'
