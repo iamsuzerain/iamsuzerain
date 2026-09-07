@@ -1267,21 +1267,16 @@
     border-top: 1px solid rgba(255,79,216,0.22);
     color: var(--mark-pos); font-size: 10px; letter-spacing: 0.06em;
   }
-  /* Transfer ticks on the capital chart. Solid, never dashed — the site does not
-     draw dashed lines: SzRule found that dashes read as texture rather than as a
-     mark at a recessed weight, and the distribution panel's normal reference
-     dropped its dashes for the same reason. A dash pattern is also the wrong
-     shape for the claim: it says "approximate", and the date a wire landed is
-     the most exact fact on this chart.
-     The weight comes down through alpha instead of through gaps. At 2-on-4-off
-     the old rule inked a third of its length, so the same 0.42 solid would have
-     read three times as loud as what it replaced. */
-  .cmb-cap-xfer { stroke: rgba(255,79,216,0.18); stroke-width: 1; }
   .cmb-stat-link { cursor: pointer; transition: border-color 160ms ease, background 160ms ease; }
   .cmb-stat-link:hover { border-color: rgba(167,139,250,0.5); background: rgba(167,139,250,0.06); }
   .cmb-stat-arrow { color: var(--violet-300); opacity: 0.7; }
 
-  /* log event markers + caption on the overview chart */
+  /* Event markers + caption on the overview charts. The diamond is shared: log
+     entries wear it on the total chart and transfers wear it on the capital
+     chart, which is why the shape lives on .cmb-annot-sq alone and the pointer
+     affordance lives on the .cmb-annot wrapper. Only the log markers take that
+     wrapper — they open a caption; a transfer has nothing to open, and its
+     amount is already in the tooltip for its column. */
   .cmb-annot { cursor: pointer; }
   .cmb-annot-sq {
     fill: var(--fg-1); opacity: 0.7;

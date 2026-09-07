@@ -1516,15 +1516,24 @@ function CmbCapitalChart({ series, transfers }) {
         <path d={ibkrArea} fill={CMB_C_IBKR} opacity="0.26"/>
         <path d={pmArea} fill={CMB_C_PM} opacity="0.26"/>
 
-        {/* Transfer ticks sit under the boundaries so a move never hides the
-            step it caused. */}
-        {marks.map((m, k) => (
-          <line key={k} className="cmb-cap-xfer" x1={x(m.i)} x2={x(m.i)}
-            y1={F.PAD_T} y2={F.H - F.PAD_B}/>
-        ))}
-
         <path d={ibkrLine} fill="none" stroke={CMB_C_IBKR} strokeWidth="1.25"/>
         <path d={totalLine} fill="none" stroke={CMB_C_PM} strokeWidth="1.35"/>
+
+        {/* Transfers, as the same diamond the log markers wear on the total
+            chart — one event-marker shape on this page rather than two.
+            Pinned to the ibkr/polymarket boundary, because that is the line a
+            transfer actually moves: the total is unchanged by definition, and
+            the step the diamond sits on is the whole event.
+            Drawn over the boundaries rather than under them. Full-height rules
+            came first and read as chart furniture — nine of them striped the
+            plot and competed with the bands they were there to annotate. */}
+        {marks.map((m, k) => {
+          const my = y(pts[m.i].ibkrLevel);
+          return (
+            <rect key={k} className="cmb-annot-sq" x={x(m.i) - 2.5} y={my - 2.5}
+              width="5" height="5" transform={`rotate(45 ${x(m.i)} ${my})`}/>
+          );
+        })}
 
         {hp && (
           <SzCrosshair frame={F} x={x(hv.i)} cy={y(hpTotal)} fill={CMB_C_PM} ring="#0a0612"
@@ -2089,7 +2098,7 @@ function Combined({ setView }) {
           <div className="pf-panel-head">
             <span className="pf-panel-title">capital deployed · {cmbRangeLabel(range)}</span>
             <span className="pf-panel-meta">
-              ibkr nav + polymarket nav · ticks are transfers
+              ibkr nav + polymarket nav · diamonds are transfers
               {xferTotal > 0 ? `, ${cmbUSDk(xferTotal)} to date` : ''}
             </span>
           </div>
