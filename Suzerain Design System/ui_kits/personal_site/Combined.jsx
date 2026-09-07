@@ -1521,14 +1521,18 @@ function CmbCapitalChart({ series, transfers }) {
 
         {/* Transfers, as the same diamond the log markers wear on the total
             chart — one event-marker shape on this page rather than two.
-            Pinned to the ibkr/polymarket boundary, because that is the line a
-            transfer actually moves: the total is unchanged by definition, and
-            the step the diamond sits on is the whole event.
-            Drawn over the boundaries rather than under them. Full-height rules
-            came first and read as chart furniture — nine of them striped the
-            plot and competed with the bands they were there to annotate. */}
+            Ridden on the top line, which is also where that chart puts them.
+            The boundary underneath is arguably the truer spot — it is the line a
+            transfer actually moves, and the total is unchanged by definition —
+            but a mark there sits inside a filled band and has to fight the fill
+            for contrast, while the same mark on the outer contour reads against
+            the page. The step is legible either way; the marker only has to say
+            which column to look at, and the tooltip carries the amount.
+            Drawn over the lines rather than under them. Full-height rules came
+            first and read as chart furniture — nine of them striped the plot and
+            competed with the bands they were there to annotate. */}
         {marks.map((m, k) => {
-          const my = y(pts[m.i].ibkrLevel);
+          const my = y(totals[m.i]);
           return (
             <rect key={k} className="cmb-annot-sq" x={x(m.i) - 2.5} y={my - 2.5}
               width="5" height="5" transform={`rotate(45 ${x(m.i)} ${my})`}/>
