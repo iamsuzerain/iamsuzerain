@@ -933,6 +933,23 @@
     color: var(--fg-2);
   }
   .pf-table tr:hover td { background: rgba(167,139,250,0.04); }
+  /* Benchmark comparison: every row is the picker's toggle for that index, so
+     the rows carry the affordance the rest of the table's rows don't. The lit
+     state is the left edge rather than a fill — a filled row in a table of
+     numbers reads as "this figure is special", and what is actually true is
+     "this line is drawn above". */
+  .pf-bench-row { cursor: pointer; }
+  .pf-bench-row td:first-child { box-shadow: inset 2px 0 0 transparent; }
+  .pf-bench-row.on td:first-child { box-shadow: inset 2px 0 0 var(--violet-400); }
+  .pf-bench-row:focus-visible {
+    outline: 1px solid var(--violet-300); outline-offset: -1px;
+  }
+  .pf-bench-table .pf-sym { display: flex; align-items: center; gap: 7px; }
+  /* Reserved whether or not the arrow is there, so ticking a different index
+     doesn't shuffle the column sideways. */
+  .pf-bench-arrow {
+    display: inline-block; width: 9px; color: var(--violet-300); font-size: 10px;
+  }
   .pf-table .pf-num { text-align: right; font-variant-numeric: tabular-nums; }
   .pf-table .pf-sym { color: var(--fg-1); font-weight: 500; }
   .pf-table .pf-name { color: var(--fg-3); font-family: var(--font-sans); font-size: 13px; }
@@ -1236,68 +1253,33 @@
   .cmb-tt-num { margin-left: auto; padding-left: 14px; font-weight: 500; }
   .cmb-tt-num.pos { color: var(--pos); }
   .cmb-tt-num.neg { color: var(--neg); }
+  /* The capital tooltip's total is the sum of the two rows above it, not a
+     third series, so it gets a rule instead of a dot — a dot would imply a
+     third band on the chart. The dot's width is paid back as padding so the
+     figures stay in one column with the rows above. */
+  .cmb-tt-sum {
+    border-top: 1px solid rgba(229,225,241,0.14);
+    margin-top: 2px; padding-top: 5px; padding-left: 14px;
+    color: var(--fg-2);
+  }
+  .cmb-tt-xfer {
+    margin-top: 4px; padding-top: 5px;
+    border-top: 1px solid rgba(255,79,216,0.22);
+    color: var(--mark-pos); font-size: 10px; letter-spacing: 0.06em;
+  }
+  /* Transfer ticks on the capital chart. Solid, never dashed — the site does not
+     draw dashed lines: SzRule found that dashes read as texture rather than as a
+     mark at a recessed weight, and the distribution panel's normal reference
+     dropped its dashes for the same reason. A dash pattern is also the wrong
+     shape for the claim: it says "approximate", and the date a wire landed is
+     the most exact fact on this chart.
+     The weight comes down through alpha instead of through gaps. At 2-on-4-off
+     the old rule inked a third of its length, so the same 0.42 solid would have
+     read three times as loud as what it replaced. */
+  .cmb-cap-xfer { stroke: rgba(255,79,216,0.18); stroke-width: 1; }
   .cmb-stat-link { cursor: pointer; transition: border-color 160ms ease, background 160ms ease; }
   .cmb-stat-link:hover { border-color: rgba(167,139,250,0.5); background: rgba(167,139,250,0.06); }
   .cmb-stat-arrow { color: var(--violet-300); opacity: 0.7; }
-
-  /* capital deployment — IBKR vs Polymarket tug-of-war */
-  .cmb-deploy { display: flex; flex-direction: column; gap: 12px; }
-  .cmb-deploy-ends {
-    display: flex; justify-content: space-between; align-items: center;
-    font-family: var(--font-mono); font-size: 12px;
-  }
-  .cmb-deploy-end { display: flex; align-items: baseline; gap: 8px; }
-  .cmb-deploy-end-r { justify-content: flex-end; }
-  .cmb-deploy-dot { width: 8px; height: 8px; border-radius: 2px; align-self: center; }
-  .cmb-deploy-name {
-    color: var(--fg-3); letter-spacing: 0.14em; text-transform: uppercase; font-size: 10px;
-  }
-  .cmb-deploy-val { color: var(--fg-1); font-size: 15px; letter-spacing: 0.01em; }
-  .cmb-deploy-pct { color: var(--fg-4); font-size: 11px; }
-  .cmb-deploy-track {
-    position: relative; height: 22px; border-radius: var(--r-1); overflow: hidden;
-    background: rgba(10,6,18,0.5); border: 1px solid rgba(167,139,250,0.14);
-  }
-  /* Violet vs pink here encodes the venue, not direction — it is the one place
-     the two accents sit side by side meaning "IBKR" and "Polymarket". Not
-     --mark-pos/--mark-neg: a longer pink bar is not a gain. Left literal so it
-     doesn't get "corrected" to the P&L tokens later. */
-  /* Adopts the 1px outline from the other bars, but NOT their 0.13 wash. This
-     is a 100%-stacked proportion, not a magnitude bar: the whole track is
-     always full, so the reading is "which territory is bigger" and that comes
-     entirely from filled area. At 0.13 the two sides vanish and the rope reads
-     as an empty progress track. Flat 0.30 keeps the share legible while
-     dropping the gradients, which is what actually made it look different from
-     everything else. */
-  .cmb-deploy-fill { position: absolute; top: 0; bottom: 0; box-sizing: border-box; }
-  .cmb-deploy-fill-ibkr {
-    left: 0; background: rgba(167,139,250,0.30); border: 1px solid rgba(167,139,250,0.85);
-  }
-  .cmb-deploy-fill-poly {
-    background: rgba(255,79,216,0.30); border: 1px solid rgba(255,79,216,0.85);
-  }
-  .cmb-deploy-center {
-    position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px;
-    background: rgba(229,225,241,0.20);
-  }
-  .cmb-deploy-flag {
-    position: absolute; top: -3px; bottom: -3px; width: 2px;
-    background: var(--fg-1); transform: translateX(-1px);
-    box-shadow: 0 0 8px rgba(10,6,18,0.8);
-  }
-  .cmb-deploy-knob {
-    position: absolute; left: 50%; top: 50%; width: 9px; height: 9px;
-    transform: translate(-50%, -50%) rotate(45deg);
-    background: var(--fg-1); border-radius: 2px;
-    box-shadow: 0 0 8px rgba(10,6,18,0.9);
-  }
-  .cmb-deploy-foot {
-    display: flex; justify-content: space-between;
-    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
-    color: var(--fg-4);
-  }
-  .cmb-deploy-foot b { color: var(--fg-2); font-weight: 500; }
-
 
   /* log event markers + caption on the overview chart */
   .cmb-annot { cursor: pointer; }

@@ -25,9 +25,6 @@ function fmtPct(n) {
   const s = (n * 100).toFixed(2) + '%';
   return (n >= 0 ? '+' : '') + s;
 }
-function fmtDate(iso) {
-  try { return new Date(iso).toISOString().slice(0, 10); } catch { return iso; }
-}
 function fmtNum(n, dp = 2) {
   if (n == null || isNaN(n)) return '—';
   return n.toFixed(dp);
@@ -122,6 +119,15 @@ function pfOls(pairs) {
     cov += dp * db; vb += db * db; vp += dp * dp;
   }
   if (vb === 0 || vp === 0) return null;
+  // A benchmark with no variation of its own has no slope to report: cov/vb
+  // blows up as vb approaches zero, so cash — whose daily return is the fed
+  // funds rate over 365, moving a few times a year — would print a four-figure
+  // beta rather than the undefined it is. The test is a RATIO against the
+  // portfolio's own variance rather than an absolute floor, so it does not need
+  // to know what units these returns are in: cash sits ~8 orders of magnitude
+  // under the book, the quietest real benchmark (bnd) ~1, and nothing lives in
+  // between.
+  if (vb / vp < 1e-4) return null;
   return { beta: cov / vb, r2: (cov * cov) / (vb * vp), corr: cov / Math.sqrt(vb * vp) };
 }
 
@@ -275,26 +281,35 @@ function pfWindow(navSeries, perfSeries, pnlSeries, range) {
   return { nav: navSeries.slice(i, j + 1), perf, pnl };
 }
 
-// Cumulative alpha: portfolio TWR minus the benchmark's rebased cumulative
-// return, per date (both start at 0 at the window start).
-function pfAlphaSeries(perf, benchSeries) {
-  if (!perf || perf.length < 2 || !benchSeries) return null;
-  const b = rebaseBenchmark(benchSeries, perf.map(p => p.d));
-  if (!b) return null;
-  return perf.map((p, i) => ({ d: p.d, v: p.v - b[i] }));
+// Cumulative excess: the book's own cumulative return minus a reference's, per
+// date, both starting at 0 at the window start. The reference is a bare array
+// of cumulative ratios rather than a series, which is what rebaseBenchmark
+// hands back — cash included, since cash is a benchmark series like any other
+// (szCashSeries in Chrome.jsx) rather than a second kind of thing.
+function pfExcessSeries(perf, cum) {
+  if (!perf || perf.length < 2 || !cum) return null;
+  return perf.map((p, i) => ({ d: p.d, v: p.v - cum[i] }));
 }
 
 // Same idea in dollars: cumulative $ P&L minus what the window-start NAV would
-// have made in the index. Approximate by construction — the real capital base
-// moved during the window — which is exactly why the percent version stays the
-// default here and the dollar figure prints its notional in the legend.
-function pfAlphaDollars(pnl, nav, benchSeries) {
-  if (!pnl || pnl.length < 2 || !nav || !nav.length || !benchSeries) return null;
+// have made in the reference. Approximate by construction — the real capital
+// base moved during the window — which is exactly why the percent version stays
+// the default here and the dollar figure prints its notional in the legend.
+function pfExcessDollars(pnl, nav, cum) {
+  if (!pnl || pnl.length < 2 || !nav || !nav.length || !cum) return null;
   const notional = nav[0].v;
   if (!notional) return null;
-  const b = rebaseBenchmark(benchSeries, pnl.map(p => p.d));
-  if (!b) return null;
-  return pnl.map((p, i) => ({ d: p.d, v: +(p.v - notional * b[i]).toFixed(2) }));
+  return pnl.map((p, i) => ({ d: p.d, v: +(p.v - notional * cum[i]).toFixed(2) }));
+}
+
+function pfAlphaSeries(perf, benchSeries) {
+  if (!perf || perf.length < 2) return null;
+  return pfExcessSeries(perf, rebaseBenchmark(benchSeries, perf.map(p => p.d)));
+}
+
+function pfAlphaDollars(pnl, nav, benchSeries) {
+  if (!pnl || pnl.length < 2) return null;
+  return pfExcessDollars(pnl, nav, rebaseBenchmark(benchSeries, pnl.map(p => p.d)));
 }
 
 // Sharpe / Sortino / annualized vol / max drawdown over a (windowed) TWR
@@ -607,6 +622,55 @@ function rebaseBenchmark(benchSeries, perfDates) {
 const benchColor = (key) => (window.szBenchColor ? window.szBenchColor(key) : '#5eead4');
 const benchLabel = (key) => (window.szBenchLabel ? window.szBenchLabel(key) : key);
 const benchOrder = (keys) => (window.szBenchSort ? window.szBenchSort(keys) : (keys || []));
+// The registry's long name ("s&p 500"), which nothing needed until a table
+// listed all ten at once — a column of bare tickers is a quiz. Not `benchName`:
+// RollingStrip already takes a prop by that name holding a benchmark's short
+// label, and one file with two `benchName`s — a formatter at the top and a
+// string inside a component that shadows it — is a trap for whoever edits that
+// component next.
+const benchLongName = (key) => {
+  const b = (window.SZ_BENCHES || []).find(x => x.key === key);
+  return (b && b.name) || '';
+};
+
+// ---------- benchmark comparison ----------
+// Every benchmark the feed carries, measured against the book over the selected
+// window at once. The chart draws one or two at a time and the tiles name
+// exactly one; this is the whole registry, which is the only way to see which
+// index the book actually tracks rather than which one it happens to be shown
+// against. benchmarks.json has carried ten series since it was written and nine
+// of them were only ever reachable by ticking them one at a time.
+//
+// Rows come back in registry order (benchOrder), the same order the picker
+// lists them in, so ticking one here and finding it there are the same list.
+// Every column is windowed: the index's return over the range, the book's
+// excess over it, and the pair statistics off pfPairedReturns — so nothing here
+// is a lifetime figure sitting next to a range-scoped one.
+function pfBenchTable(perf, benchmarks) {
+  if (!perf || perf.length < 2 || !benchmarks) return [];
+  const dates = perf.map(p => p.d);
+  const book = perf[perf.length - 1].v;
+  const rows = [];
+  for (const key of benchOrder(Object.keys(benchmarks))) {
+    const series = benchmarks[key] && benchmarks[key].series;
+    const cum = rebaseBenchmark(series, dates);
+    const ret = cum ? cum[cum.length - 1] : null;
+    // null rather than 0 on a benchmark the window has no closes for: computeBeta
+    // already returns null below 20 paired sessions, and a row of dashes says
+    // "not enough sample here" where a row of zeros would look like a reading.
+    const ols = computeBeta(perf, series);
+    rows.push({
+      key,
+      name: benchLongName(key),
+      ret,
+      excess: ret == null ? null : book - ret,
+      beta: ols ? ols.beta : null,
+      corr: ols ? ols.corr : null,
+      r2: ols ? ols.r2 : null,
+    });
+  }
+  return rows;
+}
 
 // ---------- Performance chart (deposit-adjusted TWR %) ----------
 // Taller than the strips below it and the only one here carrying x-axis labels,
@@ -892,8 +956,18 @@ function DrawdownStrip({ perfSeries }) {
   );
 }
 
-// ---------- Rolling alpha strip (cumulative TWR minus SPX, zero-centered) ----------
-function AlphaStrip({ alpha, unit }) {
+// ---------- Cumulative excess strip (zero-centered) ----------
+// Drawn twice on this page, against the benchmark and against cash. Same ramp
+// for both on purpose: they are the same statistic — cumulative return minus a
+// reference's — and giving the second one a color of its own would either
+// invent a fourth accent or borrow one of the ten already spoken for by the
+// benchmark registry, where it would read as "this strip is about tlt". The
+// strip heads name which reference each is measured against, the way every
+// other strip on this page is named.
+//
+// `id` is not decoration: SzChartDefs emits document-global gradient ids, so
+// two strips sharing one would leave the second referencing the first's defs.
+function AlphaStrip({ alpha, unit, id = 'pf-alpha' }) {
   const F = PF_STRIP_FRAME;
   const hv = useChartHover(F);
   if (!alpha || alpha.length < 2) return null;
@@ -911,10 +985,10 @@ function AlphaStrip({ alpha, unit }) {
   return (
     <div className="pm-chart-wrap">
       <SzChartSvg frame={F} hover={hv} n={alpha.length}>
-        <SzChartDefs ramp="alpha" id="pf-alpha"/>
+        <SzChartDefs ramp="alpha" id={id}/>
         <SzRule frame={F} y={zeroY}/>
-        <path d={area} fill="url(#pf-alpha-fill)"/>
-        <path d={line} fill="none" stroke="url(#pf-alpha-stroke)" strokeWidth="1.35"/>
+        <path d={area} fill={`url(#${id}-fill)`}/>
+        <path d={line} fill="none" stroke={`url(#${id}-stroke)`} strokeWidth="1.35"/>
         {hovered && <SzCrosshair frame={F} x={x(hv.i)} cy={y(hovered.v)} fill="#60a5fa"/>}
       </SzChartSvg>
       {hovered && (
@@ -1152,6 +1226,67 @@ function DrawdownTable({ episodes }) {
   );
 }
 
+// ---------- Benchmark comparison table ----------
+// The rows are the picker, spelled out. Clicking one ticks that benchmark onto
+// the chart above — the same toggle BenchPicker performs, through the same
+// benchOrder normalization — so the table is a second face of one control
+// rather than a second control. The arrow marks the row whose numbers the beta,
+// alpha and capture panels are currently quoting: that is `primary`, which is
+// first in REGISTRY order among the selected, not first-clicked, so a reader who
+// ticks tlt while spx is on needs telling that spx still owns those tiles.
+function BenchTable({ rows, selected, primary, onToggle }) {
+  if (!rows || !rows.length) return null;
+  const sel = new Set(selected || []);
+  return (
+    <div className="pf-table-wrap">
+      <table className="pf-table pf-bench-table">
+        <thead>
+          <tr>
+            <th>index</th>
+            <th>tracks</th>
+            <th className="pf-num">return</th>
+            <th className="pf-num">book vs</th>
+            <th className="pf-num">beta</th>
+            <th className="pf-num">corr</th>
+            <th className="pf-num">r²</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => {
+            const on = sel.has(r.key);
+            return (
+              <tr key={r.key} className={`pf-bench-row${on ? ' on' : ''}`}
+                role="button" tabIndex={0} aria-pressed={on}
+                aria-label={`${benchLabel(r.key)} — ${on ? 'drawn' : 'not drawn'}`}
+                onClick={() => onToggle(r.key)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(r.key); }
+                }}>
+                <td className="pf-sym">
+                  <span className="pf-bench-arrow">{r.key === primary ? '→' : ''}</span>
+                  <i className="pf-bench-swatch"
+                    style={{ background: on ? benchColor(r.key) : 'rgba(229,225,241,0.18)' }}/>
+                  {benchLabel(r.key)}
+                </td>
+                <td className="pf-name">{r.name}</td>
+                <td className={`pf-num ${r.ret == null ? '' : r.ret >= 0 ? 'pos' : 'neg'}`}>
+                  {fmtPctBare(r.ret)}
+                </td>
+                <td className={`pf-num ${r.excess == null ? '' : r.excess >= 0 ? 'pos' : 'neg'}`}>
+                  {r.excess == null ? '—' : `${r.excess >= 0 ? '+' : ''}${fmtPctBare(r.excess)}`}
+                </td>
+                <td className="pf-num">{fmtNum(r.beta)}</td>
+                <td className="pf-num">{fmtNum(r.corr)}</td>
+                <td className="pf-num">{fmtNum(r.r2)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ---------- Positions table ----------
 function posTypeLabel(assetClass, subCategory) {
   const ac = (assetClass || '').toUpperCase();
@@ -1368,13 +1503,19 @@ function Portfolio() {
   // Plain computations (not hooks) — these run after the early returns above, so a
   // useMemo here would violate the rules of hooks. Both are cheap.
   const winRisk = pfRiskWindow(win.perf, rf) || risk;
+  // The chart, the picker and the comparison table all read one map, and cash is
+  // in it whenever data/riskfree.json arrived — the same file the Sharpe above
+  // is already charging. Derived rather than stored, because the two feeds land
+  // independently and whichever is second would otherwise have to remember to
+  // rebuild the combination.
+  const benchAll = window.szWithCash ? window.szWithCash(bench, rf) : bench;
   // Beta, alpha and capture all name a benchmark, so they follow the picker
   // rather than staying pinned to SPX while the chart above draws something
   // else. First selected wins; an empty selection falls back to spx so these
   // panels keep working when the reader just wants a bare chart.
   const primary = window.szBenchPrimary ? window.szBenchPrimary(benchKeys) : 'spx';
   const primaryName = benchLabel(primary);
-  const primarySeries = bench && bench[primary] ? bench[primary].series : null;
+  const primarySeries = benchAll && benchAll[primary] ? benchAll[primary].series : null;
   const betaObj = primarySeries ? computeBeta(win.perf, primarySeries) : null;
   const alpha = primarySeries ? pfAlphaSeries(win.perf, primarySeries) : null;
   const alphaD = primarySeries ? pfAlphaDollars(win.pnl, win.nav, primarySeries) : null;
@@ -1391,6 +1532,12 @@ function Portfolio() {
   // Range-aware like the risk tiles: every panel below re-reads the same window.
   const capture = primarySeries ? pfCapture(win.perf, primarySeries) : null;
   const episodes = pfDrawdownEpisodes(win.perf);
+  const benchRows = benchAll ? pfBenchTable(win.perf, benchAll) : [];
+  // Routed through benchOrder, the same normalization BenchPicker applies, so a
+  // row click and a menu tick produce one selection rather than two orderings of
+  // the same set — which `primary` reads off, and would otherwise disagree about.
+  const toggleBench = (key) => setBenchKeys(prev => benchOrder(
+    prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
   const PfBenchPicker = window.BenchPicker;
 
   return (
@@ -1477,13 +1624,13 @@ function Portfolio() {
             {PfHistoryPicker && (
               <PfHistoryPicker quarters={quarters} value={range} onPick={setRange}/>
             )}
-            {PfBenchPicker && bench && (
+            {PfBenchPicker && benchAll && (
               <PfBenchPicker value={benchKeys} onChange={setBenchKeys}
-                available={Object.keys(bench)}/>
+                available={Object.keys(benchAll)}/>
             )}
           </div>
         </div>
-        <NavChart series={win.nav} perfSeries={win.perf} benchmarks={bench}
+        <NavChart series={win.nav} perfSeries={win.perf} benchmarks={benchAll}
           benchKeys={benchKeys} unit={unit} dollars={win.pnl}/>
         {/* Drawdown stays in percent under both units: a decline from peak is a
             portfolio-level ratio, and the combined view reads it the same way. */}
@@ -1506,35 +1653,6 @@ function Portfolio() {
         )}
         <RollingStrip fullSeries={ext.perf} perfSeries={win.perf} benchSeries={primarySeries}
           benchName={primaryName}/>
-      </div>
-
-      <div className="pf-row">
-        <div className="pf-panel pf-panel-alloc">
-          <div className="pf-panel-head">
-            <span className="pf-panel-title">allocation</span>
-            <span className="pf-panel-meta">share of gross exposure</span>
-          </div>
-          <AllocDonut data={d.allocation}/>
-        </div>
-        <div className="pf-panel pf-panel-pos">
-          <div className="pf-panel-head">
-            <span className="pf-panel-title">top positions</span>
-            <span className="pf-panel-meta">{conc ? `top ${fmtPctBare(conc.top)} · top-3 ${fmtPctBare(conc.top3)}` : `${d.positions.length} shown`} · by weight</span>
-          </div>
-          <PositionsTable rows={d.positions}/>
-        </div>
-      </div>
-
-      {/* Second-order risk analytics. These sit below the holdings panels rather
-          than beside the headline chart: they interrogate the return series the
-          chart already showed, so they read as footnotes to it, not as the lead.
-          All three re-read the same window as the range selector above. */}
-      <div className="pf-panel">
-        <div className="pf-panel-head">
-          <span className="pf-panel-title">return distribution · daily</span>
-          <span className="pf-panel-meta">vs normal, same mean and sd</span>
-        </div>
-        <ReturnDistribution perfSeries={win.perf}/>
       </div>
 
       {capture && (
@@ -1561,6 +1679,52 @@ function Portfolio() {
           </div>
         </div>
       )}
+
+      {benchRows.length > 0 && (
+        <div className="pf-panel">
+          <div className="pf-panel-head">
+            <span className="pf-panel-title">benchmark comparison · {pfRangeLabel(range)}</span>
+            <span className="pf-panel-meta">click a row to draw it · → is the one the tiles above name</span>
+          </div>
+          <BenchTable rows={benchRows} selected={benchKeys} primary={primary}
+            onToggle={toggleBench}/>
+        </div>
+      )}
+
+      <div className="pf-row">
+        <div className="pf-panel pf-panel-alloc">
+          <div className="pf-panel-head">
+            <span className="pf-panel-title">allocation</span>
+            <span className="pf-panel-meta">share of gross exposure</span>
+          </div>
+          <AllocDonut data={d.allocation}/>
+        </div>
+        <div className="pf-panel pf-panel-pos">
+          <div className="pf-panel-head">
+            <span className="pf-panel-title">top positions</span>
+            <span className="pf-panel-meta">{conc ? `top ${fmtPctBare(conc.top)} · top-3 ${fmtPctBare(conc.top3)}` : `${d.positions.length} shown`} · by weight</span>
+          </div>
+          <PositionsTable rows={d.positions}/>
+        </div>
+      </div>
+
+      {/* Second-order risk analytics, below the holdings panels rather than
+          beside the headline chart: they interrogate the return series the chart
+          already showed, so they read as footnotes to it, not as the lead. Both
+          re-read the same window as the range selector above.
+          Capture and the benchmark comparison used to be here too and are now up
+          with the chart — not because they are more important, but because they
+          are the two panels the *benchmarks* button governs, and that button
+          lives in the chart's head. Ticking a benchmark and then scrolling past
+          the holdings to find out what changed is a control acting at a
+          distance. What is left down here answers to the range picker alone. */}
+      <div className="pf-panel">
+        <div className="pf-panel-head">
+          <span className="pf-panel-title">return distribution · daily</span>
+          <span className="pf-panel-meta">vs normal, same mean and sd</span>
+        </div>
+        <ReturnDistribution perfSeries={win.perf}/>
+      </div>
 
       {episodes.length > 0 && (
         <div className="pf-panel">
@@ -1613,7 +1777,9 @@ window.SZ_RISK = {
   ReturnDistribution,
   RollingStrip,
   DrawdownTable,
+  BenchTable,
   pfCapture,
+  pfBenchTable,
   pfDrawdownEpisodes,
   pfMoments,
   pfDailyReturns,

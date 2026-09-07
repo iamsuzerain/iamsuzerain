@@ -822,6 +822,40 @@ function szRfAnnual(steps, periods = 252) {
   return sum ? (sum / steps.length) * periods : null;
 }
 
+// The wealth index a dollar left in fed funds would have traced — cash as a
+// price series, so it can go through rebaseBenchmark, the range windowing and
+// the chart overlays as an ordinary benchmark instead of needing a panel that
+// knows what cash is.
+//
+// Each step accrues the rate in force when it opened over the CALENDAR days it
+// spans, so the weekend a Friday->Monday step crosses is paid for. That is what
+// cash actually did, and a level series has to say what a thing was worth on a
+// day. It is deliberately not szRfSteps' convention: that one charges r/periods
+// per step because its output is divided by a 252- or 365-annualized vol, and
+// both halves of a ratio have to be on one calendar. The two integrate to the
+// same figure over a year and differ by ~1% of the interest inside a month.
+function szCashSeries(rfRows) {
+  if (!rfRows || rfRows.length < 2) return null;
+  const out = [{ d: rfRows[0].d, v: 1 }];
+  let w = 1;
+  for (let i = 1; i < rfRows.length; i++) {
+    const days = szEpochDay(rfRows[i].d) - szEpochDay(rfRows[i - 1].d);
+    w *= 1 + (rfRows[i - 1].v / 100) * (days / 365);
+    out.push({ d: rfRows[i].d, v: w });
+  }
+  return out;
+}
+
+// The benchmark map the pickers, charts and tables read: the fetched closes plus
+// cash, when the rate series loaded. A new object rather than a write into the
+// parsed file — szJson hands the same parse to every caller, and a synthetic
+// series mutated into it would turn up in readers that never asked for one.
+function szWithCash(benchmarks, rfRows) {
+  const cash = szCashSeries(rfRows);
+  if (!benchmarks || !cash) return benchmarks;
+  return { ...benchmarks, cash: { label: 'CASH', series: cash } };
+}
+
 // ---------- benchmarks ----------
 // One registry for every page that draws a benchmark line. The keys match
 // data/benchmarks.json (scripts/benchmarks/fetch-benchmarks.py owns the closes;
@@ -843,6 +877,15 @@ const SZ_BENCHES = [
   { key: 'tlt', label: 'tlt', name: '20y+ treasuries',  group: 'bonds & blends', color: '#cbd5e1' },
   { key: 'gld', label: 'gld', name: 'gold',             group: 'alternatives',  color: '#fbbf24' },
   { key: 'btc', label: 'btc', name: 'bitcoin',          group: 'alternatives',  color: '#f97316' },
+  // Cash is a benchmark like any other, and belongs in the same menu as the
+  // rest rather than in a panel of its own: "did the book beat cash" is the
+  // same question as "did the book beat spx", asked of a different line. It is
+  // built here rather than fetched (szCashSeries, off data/riskfree.json), so
+  // it appears only when that file loaded. Desaturated green because every
+  // saturated hue in this list already names something and the risk-free line
+  // should read as the quiet one.
+  { key: 'cash', label: 'cash', name: 'fed funds · effr', group: 'cash', color: '#93b09b',
+    riskless: true },
 ];
 const SZ_BENCH_DEFAULT = ['spx'];
 const SZ_BENCH_BY_KEY = Object.fromEntries(SZ_BENCHES.map(b => [b.key, b]));
@@ -858,8 +901,15 @@ function szBenchSort(keys) {
 // the monthly bars. First selected, and spx when the selection is empty — those
 // panels always have something to name, and deselecting everything is a request
 // for a clean chart, not for the analytics to disappear.
+//
+// Riskless keys are skipped. Every statistic that anchors here is a RISK
+// statistic — a slope against the benchmark's moves, a share of its up days —
+// and cash has no moves to take a share of: beta against it is a division by
+// something indistinguishable from zero, and capture is the book's return over
+// a number of days on which cash never once fell. So cash draws, and spx (or
+// whatever else is ticked) keeps naming the tiles.
 function szBenchPrimary(keys) {
-  const sorted = szBenchSort(keys);
+  const sorted = szBenchSort(keys).filter(k => !(SZ_BENCH_BY_KEY[k] || {}).riskless);
   return sorted.length ? sorted[0] : SZ_BENCH_DEFAULT[0];
 }
 function szBenchColor(key) {
@@ -954,6 +1004,8 @@ window.SZ_BENCH_DEFAULT = SZ_BENCH_DEFAULT;
 window.szRfAt = szRfAt;
 window.szRfSteps = szRfSteps;
 window.szRfAnnual = szRfAnnual;
+window.szCashSeries = szCashSeries;
+window.szWithCash = szWithCash;
 window.szBenchSort = szBenchSort;
 window.szBenchPrimary = szBenchPrimary;
 window.szBenchColor = szBenchColor;

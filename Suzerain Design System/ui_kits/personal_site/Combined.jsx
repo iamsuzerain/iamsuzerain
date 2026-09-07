@@ -190,22 +190,44 @@ function cmbDownsample(arr, target = CMB_CHART_MAX_POINTS) {
   return out;
 }
 
+// The visible point nearest a date, or null when the date falls outside the
+// window. Shared by the log markers and the transfer ticks below: both pin a
+// dated event onto an axis of point indices, and both DROP what the window does
+// not cover rather than clamping it to an edge — a mark pinned to the first
+// column is a claim that something happened there.
+function cmbPinIndex(days, iso) {
+  if (!days.length || !iso) return null;
+  const d = cmbEpochDay(iso);
+  if (d < days[0] || d > days[days.length - 1]) return null;
+  let best = 0, bestDiff = Infinity;
+  for (let i = 0; i < days.length; i++) {
+    const diff = Math.abs(days[i] - d);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  }
+  return best;
+}
+
 // Map each dated log entry onto the nearest chart point so it can be pinned to
 // the total line. Entries outside the visible window are dropped.
 function cmbMarkers(series, log) {
   if (!series.length || !log || !log.length) return [];
   const days = series.map(p => cmbEpochDay(p.d));
-  const start = days[0], end = days[days.length - 1];
-  return log.map(entry => {
-    if (!entry || !entry.date) return null;
-    const d = cmbEpochDay(entry.date);
-    if (d < start || d > end) return null;
-    let best = 0, bestDiff = Infinity;
-    for (let i = 0; i < days.length; i++) {
-      const diff = Math.abs(days[i] - d);
-      if (diff < bestDiff) { bestDiff = diff; best = i; }
-    }
-    return { i: best, date: entry.date, body: entry.body, link: entry.link, slug: entry.slug, v: series[best].v };
+  return (log || []).map(entry => {
+    const i = entry ? cmbPinIndex(days, entry.date) : null;
+    if (i == null) return null;
+    return { i, date: entry.date, body: entry.body, link: entry.link, slug: entry.slug, v: series[i].v };
+  }).filter(Boolean);
+}
+
+// The same, for the IBKR->Polymarket ledger in content.json. These are the only
+// events on the capital chart that are decisions rather than marks: every other
+// step in those two bands is the market moving.
+function cmbTransferMarks(series, transfers) {
+  if (!series || !series.length || !transfers || !transfers.length) return [];
+  const days = series.map(p => cmbEpochDay(p.d));
+  return transfers.map(t => {
+    const i = t ? cmbPinIndex(days, t.date) : null;
+    return i == null ? null : { i, date: t.date, amount: t.amount || 0 };
   }).filter(Boolean);
 }
 
@@ -319,10 +341,10 @@ function cmbPmPoints(rows, bdRows, transfers) {
   // Past the seam the feed's own figure is unusable — a neg-risk conversion
   // corrupts it until the market closes — so the curve is walked off book value
   // from there (szPmBookExtend, same call the polymarket view makes). Doing it
-  // here, on the shared rows, is what keeps the chart, the capital base and the
-  // deployment bar on one reading: the bar used to extend past the last scrape
-  // by this feed's delta, which on 2026-08-27 put $20,046 of phantom capital on
-  // the polymarket end of it while the panel it links to said the same.
+  // here, on the shared rows, is what keeps the chart and the capital base on
+  // one reading: a level built off this feed's raw delta past the last scrape
+  // carried $20,046 of phantom polymarket capital on 2026-08-27, while the
+  // panel it linked to said the same.
   return window.szPmBookExtend(dated, bdRows, transfers)
     .map(x => ({ day: window.szEpochDay(x.d), v: x.v }));
 }
@@ -466,6 +488,9 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
   const transfersThrough = (day) => (pmTransfers || [])
     .filter(t => t && t.date && cmbEpochDay(t.date) <= day)
     .reduce((sum, t) => sum + (t.amount || 0), 0);
+  const transfersOn = (day) => (pmTransfers || [])
+    .filter(t => t && t.date && cmbEpochDay(t.date) === day)
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
 
   // The Polymarket half of the base, preferring its real NAV.
   //
@@ -532,6 +557,23 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
   }
   const pmNavDays = [...pmNavByDay.keys()].sort((a, b) => a - b);
   const pmFloor = pmNavDays.length ? pmNavDays[0] : null;
+  //
+  // One correction on the way out. Every scraped polymarket row is restated back
+  // a day (szPmSnapshotDay) on the premise that a morning scrape reports through
+  // the previous close. That premise is about what the book EARNED, and for
+  // rewards it is exact. It is wrong about money that was MOVED: a wire that
+  // landed on T is in the scrape taken on T, so restating files it under T-1 —
+  // while the IBKR close that gave those dollars up does not report until T. For
+  // that one day the same money is counted on both sides of the base. On the
+  // 2026-06-02 transfer that is +$97k on a $909k base, a 10% step up and
+  // straight back down; it has been in `base` since `base` was written and only
+  // became visible when the capital chart drew the level instead of a return.
+  //
+  // The ledger dates the move and the ledger wins, so the transfer comes back
+  // out of the polymarket level on the day before it. Only off a row dated that
+  // day: that row is the restated scrape which actually contains the money, and
+  // a stale row carried forward from before the wire never did — subtracting
+  // there would open a hole the size of the transfer instead of closing one.
   const pmCapitalAt = (day) => {
     if (pmFloor == null || day < pmFloor) return transfersThrough(day);
     let lo = 0, hi = pmNavDays.length - 1, best = 0;
@@ -539,7 +581,9 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
       const mid = (lo + hi) >> 1;
       if (pmNavDays[mid] <= day) { best = mid; lo = mid + 1; } else hi = mid - 1;
     }
-    return pmNavByDay.get(pmNavDays[best]);
+    const at = pmNavDays[best];
+    const level = pmNavByDay.get(at);
+    return at === day ? level - transfersOn(day + 1) : level;
   };
   // Both level feeds stop before the P&L does. IBKR posts at the close, so a
   // weekend has no rows at all; a polymarket scrape on day D reports through the
@@ -591,31 +635,11 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
   const baseAt = (day) => ibkrLevelAt(day) + pmLevelAt(day);
   const notional = baseAt(start);
 
-  // The capital-deployment bar's two ends, read off the same level curve the
-  // chart's nav key prints, on the same day. It used to compute its own split
-  // from portfolio.account.nav and breakdown.balances.nav — the last *measured*
-  // pair — while the chart ran on to `today`, which the live user-pnl feed
-  // pushes a day past the last betmoar scrape. The two agreed to the cent on
-  // every measured day and then disagreed by whatever the polymarket book had
-  // done since that scrape: −$127 on a quiet morning, four figures on the days
-  // this window actually had. Two numbers on one page naming the same quantity,
-  // reconstructed twice from different corners of the feed — the thing every
-  // other convention in this file is written once to avoid.
-  //
-  // So there is one construction now, and `asOf` is the day it belongs to
-  // rather than the older of two file dates. Past its last measured day each
-  // half is carried by its own P&L (see the note above baseAt), so on a day the
-  // IBKR close has not landed yet its end of the bar is the previous close held
-  // flat — the same figure that end has always shown, now dated by the curve it
-  // came from instead of by the file it was read out of.
-  //
-  // Carried unrounded, and the bar adds the two ends itself: rounding each half
-  // to cents first and summing those can land a whole dollar off the chart's
-  // reading, which rounds the sum. Both ends print in $k anyway.
-  const deployable = navDays.length > 0 && pmFloor != null && today >= pmFloor;
-  const deploy = deployable
-    ? { ibkr: ibkrLevelAt(today), poly: pmLevelAt(today), asOf: cmbFromEpochDay(today) }
-    : null;
+  // Whether the two level feeds reach far enough to split the base at all. The
+  // capital chart draws ibkrLevel and pmLevel per point; before the first
+  // polymarket nav row there is no honest polymarket figure (see pmCapitalAt),
+  // and half a stack would read as the whole book.
+  const hasLevels = navDays.length > 0 && pmFloor != null && today >= pmFloor;
   const bench = [];
   if (benchmarks && notional) {
     for (const [key, b] of Object.entries(benchmarks)) {
@@ -627,6 +651,13 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
   for (let k = 0; k < ibkr.length; k++) {
     const day = start + k;
     const ramp = hasPm ? rewardsAt(day) - rewardsBase : 0;
+    // The two halves of the capital base, kept apart. `base` was their sum from
+    // the day it was written and stays exactly that — hasLevels' two calls — but
+    // only the sum was carried, so the split existed for the latest day alone
+    // and nowhere else. Carrying both is what lets the split be drawn as a
+    // curve instead of asserted as a ratio.
+    const ibkrL = ibkrLevelAt(day);
+    const pmL = pmLevelAt(day);
     const pt = {
       d: cmbFromEpochDay(day),
       v: +((ibkr[k] - ibkrBase) + (pm[k] - pmBase) + ramp).toFixed(2),
@@ -635,8 +666,11 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
       // Real capital base that day, so a sub-window can read its own base off
       // its first point instead of reconstructing one from returns. Measured
       // wherever the level feeds reach, which is every day but the last few
-      // (see baseAt).
-      base: +baseAt(day).toFixed(2),
+      // (see baseAt). Rounded from the unrounded sum, not from the two rounded
+      // halves, so it stays the figure every window's notional has always been.
+      base: +(ibkrL + pmL).toFixed(2),
+      ibkrLevel: +ibkrL.toFixed(2),
+      pmLevel: +pmL.toFixed(2),
     };
     for (const b of bench) pt[b.key] = +b.vals[k].toFixed(2);
     series.push(pt);
@@ -666,7 +700,11 @@ function cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pm
     bench: bench.map(b => ({ key: b.key, label: b.label })),
     benchNotional: notional,
     vsSpx,
-    deploy,
+    hasLevels,
+    // The ledger itself, so the capital chart can tick the days money moved.
+    // Lifetime, not windowed — the panel drops what its own range doesn't cover
+    // (cmbTransferMarks) and prints the lifetime sum beside the split.
+    transfers: pmTransfers || [],
     // Deliberately not range-windowed: the overlap is only ~144 sessions to
     // begin with (Polymarket NAV history is the binding constraint), and slicing
     // that to 1M would leave a correlation estimate that is pure noise.
@@ -1316,7 +1354,10 @@ function cmbWindow(series, notional, range, benchmarks, benchKeys) {
   const out = series.slice(i, j + 1).map(p => {
     const q = { d: p.d };
     for (const k of ['v', 'ibkr', 'pm']) if (p[k] != null) q[k] = +(p[k] - s0[k]).toFixed(2);
-    if (p.base != null) q.base = p.base;
+    // Levels ride through unrebased, like `base` and for the same reason: these
+    // are quantities of capital, not P&L streams, and a capital base rebased to
+    // zero at the window start would say the account was empty that morning.
+    for (const k of ['base', 'ibkrLevel', 'pmLevel']) if (p[k] != null) q[k] = p[k];
     return q;
   });
   const dates = out.map(p => p.d);
@@ -1399,46 +1440,114 @@ function CmbStat({ label, value, tone, onClick, note }) {
   );
 }
 
-// ---------- capital deployment: IBKR vs Polymarket tug-of-war ----------
-// A single rope. The flag (divider) sits at IBKR's share of total NAV, so the
-// heavier book pushes the marker into the lighter book's territory. A faint
-// center tick marks the 50/50 neutral point the flag is pulled away from.
-function CmbDeployBar({ ibkr, poly }) {
-  const total = (ibkr || 0) + (poly || 0);
-  if (total <= 0) return null;
-  const ibkrPct = ibkr / total;
-  const polyPct = poly / total;
-  const dividerLeft = +(ibkrPct * 100).toFixed(2);
-  const leader = ibkr >= poly ? 'ibkr' : 'polymarket';
+// ---------- capital deployed over time ----------
+// Where the money is, and when it moved. This replaced a tug-of-war bar that
+// showed the same split as a single ratio for one day only: two ends, a flag,
+// and a percentage that could not say whether the book had just moved $100k or
+// had sat where it was all year. The curve answers both, and the last column
+// answers what the bar did.
+//
+// Stacked, not two lines: the reading is a split of one pot, and stacking makes
+// the total the top edge so the same picture carries the split and the size of
+// the book without a second chart. IBKR on the bottom because it is the account
+// the money starts in and returns to.
+//
+// Levels, not P&L. Every other chart on this page rebases to zero at the window
+// start; this one must not, because a capital base is a quantity whose zero is
+// real — so the domain runs from a hard 0 rather than from the data's own floor,
+// and a window where the book merely doubled does not read as a book that grew
+// from nothing.
+const CMB_CAP_FRAME = szFrame(160, 16, 28);
+
+function CmbCapitalChart({ series, transfers }) {
+  const F = CMB_CAP_FRAME;
+  const hv = useChartHover(F);
+  // A window that predates the level feeds carries no split (see pmCapitalAt),
+  // and half a stack is worse than no chart: the pink band would be missing
+  // rather than zero, and the violet one would read as the whole book.
+  const pts = (series || []).filter(p => p.ibkrLevel != null && p.pmLevel != null);
+  if (pts.length < 2) return null;
+
+  const ibkrVals = pts.map(p => p.ibkrLevel);
+  const totals = pts.map(p => p.ibkrLevel + p.pmLevel);
+  const hi = Math.max(...totals);
+  const { x, y } = szScales(F, pts.length, 0, (hi * 1.08) || 1);
+
+  // Straight segments, not the site's monotone spline. A transfer is a step —
+  // $100k left one account and arrived in the other on one day — and a spline
+  // rounds that corner into a slope the money never travelled down. The two
+  // bands also share a boundary, so both edges are generated by one function:
+  // a fill and a line drawn by different code eventually part company by a
+  // subpixel and show a hairline of background between the bands.
+  const lineOf = (vals) => vals
+    .map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(' ');
+  const backOf = (vals) => {
+    let out = '';
+    for (let i = vals.length - 1; i >= 0; i--) out += ` L${x(i).toFixed(2)},${y(vals[i]).toFixed(2)}`;
+    return out;
+  };
+  const ibkrLine = lineOf(ibkrVals);
+  const totalLine = lineOf(totals);
+  const last = pts.length - 1;
+  const ibkrArea = `${ibkrLine} L${x(last).toFixed(2)},${y(0).toFixed(2)} L${x(0).toFixed(2)},${y(0).toFixed(2)} Z`;
+  const pmArea = `${totalLine}${backOf(ibkrVals)} Z`;
+
+  const marks = cmbTransferMarks(pts, transfers);
+  const ticks = szTicks(pts, 6);
+  const spanDays = cmbEpochDay(pts[last].d) - cmbEpochDay(pts[0].d);
+  const axisMode = spanDays <= 95 ? 'day'
+    : (pts[0].d.slice(0, 4) === pts[last].d.slice(0, 4) ? 'month' : 'monthyear');
+
+  const hp = hv.i != null && hv.i < pts.length ? pts[hv.i] : null;
+  const hpTotal = hp ? hp.ibkrLevel + hp.pmLevel : null;
+  // A transfer is only called out when the cursor is on its own column. The tick
+  // is already drawn; repeating the nearest one at every column would attach a
+  // decision to days it wasn't made on.
+  const hpXfer = hp ? marks.find(m => m.i === hv.i) : null;
 
   return (
-    <div className="cmb-deploy">
-      <div className="cmb-deploy-ends">
-        <div className="cmb-deploy-end">
-          <span className="cmb-deploy-dot" style={{ background: CMB_C_IBKR }}/>
-          <span className="cmb-deploy-name">ibkr</span>
-          <span className="cmb-deploy-val">{cmbUSDk(ibkr)}</span>
-          <span className="cmb-deploy-pct">{(ibkrPct * 100).toFixed(1)}%</span>
-        </div>
-        <div className="cmb-deploy-end cmb-deploy-end-r">
-          <span className="cmb-deploy-pct">{(polyPct * 100).toFixed(1)}%</span>
-          <span className="cmb-deploy-val">{cmbUSDk(poly)}</span>
-          <span className="cmb-deploy-name">polymarket</span>
-          <span className="cmb-deploy-dot" style={{ background: CMB_C_PM }}/>
-        </div>
-      </div>
-      <div className="cmb-deploy-track">
-        <div className="cmb-deploy-fill cmb-deploy-fill-ibkr" style={{ width: `${dividerLeft}%` }}/>
-        <div className="cmb-deploy-fill cmb-deploy-fill-poly" style={{ left: `${dividerLeft}%`, width: `${100 - dividerLeft}%` }}/>
-        <div className="cmb-deploy-center"/>
-        <div className="cmb-deploy-flag" style={{ left: `${dividerLeft}%` }}>
-          <span className="cmb-deploy-knob"/>
-        </div>
-      </div>
-      <div className="cmb-deploy-foot">
-        <span>total deployed <b>{cmbUSD(total)}</b></span>
-        <span>{leader} leads by {cmbUSDk(Math.abs(ibkr - poly))}</span>
-      </div>
+    <div className="pm-chart-wrap">
+      <SzChartSvg frame={F} hover={hv} n={pts.length} className="pf-navchart pm-chart-svg">
+        {/* Venue colors, matching the bar below — violet is IBKR and pink is
+            Polymarket here, not gain and loss. Flat fills for the same reason
+            the bar drops its wash: this is a composition, so the reading comes
+            from area, and a vertical ramp would make the taller band look like
+            it was also worth more per pixel at the top. */}
+        <path d={ibkrArea} fill={CMB_C_IBKR} opacity="0.26"/>
+        <path d={pmArea} fill={CMB_C_PM} opacity="0.26"/>
+
+        {/* Transfer ticks sit under the boundaries so a move never hides the
+            step it caused. */}
+        {marks.map((m, k) => (
+          <line key={k} className="cmb-cap-xfer" x1={x(m.i)} x2={x(m.i)}
+            y1={F.PAD_T} y2={F.H - F.PAD_B}/>
+        ))}
+
+        <path d={ibkrLine} fill="none" stroke={CMB_C_IBKR} strokeWidth="1.25"/>
+        <path d={totalLine} fill="none" stroke={CMB_C_PM} strokeWidth="1.35"/>
+
+        {hp && (
+          <SzCrosshair frame={F} x={x(hv.i)} cy={y(hpTotal)} fill={CMB_C_PM} ring="#0a0612"
+            dots={[{ key: 'ibkr', cy: y(hp.ibkrLevel), fill: CMB_C_IBKR }]}/>
+        )}
+      </SzChartSvg>
+
+      {/* The floor is a real zero, so it gets the marker every other baseline on
+          the site gets rather than being left to look like a cropped axis. */}
+      <SzAxisZero frame={F} y={y(0)}>$0</SzAxisZero>
+      <SzAxisX frame={F} ticks={ticks} x={x} label={(t) => cmbAxisLabel(t.d, axisMode)}/>
+
+      {hp && (
+        <SzTooltip frame={F} x={x(hv.i)} y={y(hpTotal)} className="cmb-tooltip">
+          <div className="pm-tt-date">{cmbFullDate(hp.d)}</div>
+          <div className="cmb-tt-row"><span className="cmb-tt-dot" style={{ background: CMB_C_IBKR }}/>ibkr<span className="cmb-tt-num">{cmbUSD(hp.ibkrLevel)}</span></div>
+          <div className="cmb-tt-row"><span className="cmb-tt-dot" style={{ background: CMB_C_PM }}/>polymarket<span className="cmb-tt-num">{cmbUSD(hp.pmLevel)}</span></div>
+          <div className="cmb-tt-row cmb-tt-sum">total<span className="cmb-tt-num">{cmbUSD(hpTotal)}</span></div>
+          {hpXfer && (
+            <div className="cmb-tt-xfer">moved {cmbUSDk(hpXfer.amount)} → polymarket</div>
+          )}
+        </SzTooltip>
+      )}
     </div>
   );
 }
@@ -1694,14 +1803,18 @@ function Combined({ setView }) {
       const log = (content && content.home && content.home.log) || [];
       const pmTransfers = (content && content.pmTransfers) || [];
 
-      // Benchmark overlay is best-effort; the chart renders fine without it.
-      const bj = await benchP;
-      const benchmarks = (bj && bj.benchmarks) || null;
-
       // Fed funds, for the Sharpe on the risk panel. Best-effort like the rest:
-      // missing, the tile falls back to rf 0 and its note says so.
+      // missing, the tile falls back to rf 0 and its note says so. Awaited ahead
+      // of the benchmarks now because it is also one of them — both requests
+      // went out on the same tick above, so the order costs nothing.
       const rfj = await rfP;
       const rfRows = (rfj && rfj.series && rfj.series.length) ? rfj.series : null;
+
+      // Benchmark overlay is best-effort; the chart renders fine without it.
+      // szWithCash folds the rate series in as a drawable line, so this page's
+      // picker and the ibkr page's offer the same list.
+      const bj = await benchP;
+      const benchmarks = window.szWithCash((bj && bj.benchmarks) || null, rfRows);
 
       // Accumulated multi-year P&L history (best-effort). Extends the IBKR curve
       // before the Flex window so the MAX range keeps charting aged-out markers.
@@ -1722,10 +1835,6 @@ function Combined({ setView }) {
       const breakdown = await breakdownP;
       const bd = await cmbBdExtra(breakdown, await bdHistP);  // { total, rows } — lifetime net + dated history
 
-      // The capital-deployment bar's split comes back from cmbBuild with the
-      // rest of the levels (`built.deploy`) — it is the nav curve's last point,
-      // read apart into its two halves rather than rebuilt here out of
-      // account.nav and breakdown.balances.nav.
       const built = cmbBuild(portfolio, pmRows, bd, benchmarks, pmTransfers, pnlHistory, pmNavHistory);
       built.log = log;
       built.benchmarks = benchmarks;  // raw closes, for rebuilding benchmark $ per range
@@ -1778,6 +1887,19 @@ function Combined({ setView }) {
   const cBench = (data.benchmarks && data.benchmarks[primary] && data.benchmarks[primary].series) || null;
   const cCapture = (cPerf && cBench && SZ.pfCapture) ? SZ.pfCapture(cPerf, cBench) : null;
   const cEpisodes = (cPerf && SZ.pfDrawdownEpisodes) ? SZ.pfDrawdownEpisodes(cPerf) : [];
+  // The same table the ibkr tab draws, on the combined equity curve. cPerf is
+  // already in that file's perfSeries shape, which is why the panel is shared
+  // rather than rebuilt: two implementations of "the book against ten indices"
+  // would eventually disagree about one of them.
+  const cBenchRows = (cPerf && data.benchmarks && SZ.pfBenchTable)
+    ? SZ.pfBenchTable(cPerf, data.benchmarks) : [];
+  // Normalized through szBenchSort exactly as BenchPicker does, so a row click
+  // here and a tick in the menu produce one selection and `primary` cannot read
+  // two different first-entries off the same set.
+  const toggleBench = (key) => setBenchKeys(prev => {
+    const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+    return window.szBenchSort ? window.szBenchSort(next) : next;
+  });
   // Endpoint of the rebased window = each stream's P&L over the selected range,
   // so the headline + summary tiles track the timeframe on the chart.
   const wLast = (win.series && win.series.length) ? win.series[win.series.length - 1] : { v: 0, ibkr: 0, pm: 0 };
@@ -1810,6 +1932,9 @@ function Combined({ setView }) {
   const vPm = pct ? sLast.pm : wPm;
   const vBench = pct ? (wBenchD == null ? null : sLast.v - (sLast[primary] || 0)) : wBenchD;
   const UnitBar = window.UnitBar;
+  // Lifetime, not windowed: it labels the ledger the ticks come from, and a sum
+  // that shrank when the reader picked 1M would look like money coming back.
+  const xferTotal = (data.transfers || []).reduce((sum, t) => sum + ((t && t.amount) || 0), 0);
 
   return (
     <section className="pf-wrap cmb-view">
@@ -1882,6 +2007,47 @@ function Combined({ setView }) {
         </div>
       )}
 
+      {/* The two panels the benchmarks button governs, directly under the panel
+          that carries it. Same reasoning as the ibkr tab: a control whose effect
+          only shows up several screens further down is a control acting at a
+          distance, and both of these restate themselves entirely when the
+          selection changes. */}
+      {cCapture && (
+        <div className="pf-panel">
+          <div className="pf-panel-head">
+            <span className="pf-panel-title">capture vs {primaryName}</span>
+            <span className="pf-panel-meta">
+              {cCapture.upDays} up · {cCapture.downDays} down sessions · negative = moved opposite
+            </span>
+          </div>
+          <div className="cmb-risk-grid">
+            <CmbStat label="up capture"
+              value={cCapture.upCapture != null ? pct1(cCapture.upCapture) : '—'}
+              note={`of ${primaryName} gains on its up days`}/>
+            <CmbStat label="down capture"
+              value={cCapture.downCapture != null ? pct1(cCapture.downCapture) : '—'}
+              note={`of ${primaryName} losses on its down days`}/>
+            <CmbStat label="bull beta"
+              value={cCapture.bullBeta != null ? cCapture.bullBeta.toFixed(2) : '—'}
+              note={`slope · ${primaryName} up days`}/>
+            <CmbStat label="bear beta"
+              value={cCapture.bearBeta != null ? cCapture.bearBeta.toFixed(2) : '—'}
+              note={`slope · ${primaryName} down days`}/>
+          </div>
+        </div>
+      )}
+
+      {cBenchRows.length > 0 && SZ.BenchTable && (
+        <div className="pf-panel">
+          <div className="pf-panel-head">
+            <span className="pf-panel-title">benchmark comparison · {cmbRangeLabel(range)}</span>
+            <span className="pf-panel-meta">click a row to draw it · → is the one the tiles above name</span>
+          </div>
+          <SZ.BenchTable rows={cBenchRows} selected={benchKeys} primary={primary}
+            onToggle={toggleBench}/>
+        </div>
+      )}
+
       {risk && (
         <div className="pf-panel">
           <div className="pf-panel-head">
@@ -1918,13 +2084,16 @@ function Combined({ setView }) {
         </div>
       )}
 
-      {data.deploy && (
+      {data.hasLevels && (
         <div className="pf-panel">
           <div className="pf-panel-head">
-            <span className="pf-panel-title">capital deployment{data.deploy.asOf ? ` · as of ${cmbShortDate(data.deploy.asOf)}` : ''}</span>
-            <span className="pf-panel-meta">ibkr nav vs polymarket nav</span>
+            <span className="pf-panel-title">capital deployed · {cmbRangeLabel(range)}</span>
+            <span className="pf-panel-meta">
+              ibkr nav + polymarket nav · ticks are transfers
+              {xferTotal > 0 ? `, ${cmbUSDk(xferTotal)} to date` : ''}
+            </span>
           </div>
-          <CmbDeployBar ibkr={data.deploy.ibkr} poly={data.deploy.poly}/>
+          <CmbCapitalChart series={win.series} transfers={data.transfers}/>
         </div>
       )}
 
@@ -1948,31 +2117,6 @@ function Combined({ setView }) {
             <span className="pf-panel-meta">vs normal, same mean and sd</span>
           </div>
           <SZ.ReturnDistribution perfSeries={cPerf}/>
-        </div>
-      )}
-
-      {cCapture && (
-        <div className="pf-panel">
-          <div className="pf-panel-head">
-            <span className="pf-panel-title">capture vs {primaryName}</span>
-            <span className="pf-panel-meta">
-              {cCapture.upDays} up · {cCapture.downDays} down sessions · negative = moved opposite
-            </span>
-          </div>
-          <div className="cmb-risk-grid">
-            <CmbStat label="up capture"
-              value={cCapture.upCapture != null ? pct1(cCapture.upCapture) : '—'}
-              note={`of ${primaryName} gains on its up days`}/>
-            <CmbStat label="down capture"
-              value={cCapture.downCapture != null ? pct1(cCapture.downCapture) : '—'}
-              note={`of ${primaryName} losses on its down days`}/>
-            <CmbStat label="bull beta"
-              value={cCapture.bullBeta != null ? cCapture.bullBeta.toFixed(2) : '—'}
-              note={`slope · ${primaryName} up days`}/>
-            <CmbStat label="bear beta"
-              value={cCapture.bearBeta != null ? cCapture.bearBeta.toFixed(2) : '—'}
-              note={`slope · ${primaryName} down days`}/>
-          </div>
         </div>
       )}
 
