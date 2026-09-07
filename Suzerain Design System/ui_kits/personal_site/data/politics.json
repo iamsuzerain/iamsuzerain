@@ -340,8 +340,8 @@
     "Massachusetts": {
       "races": [
         {
-          "office": "senate primary",
-          "next": "2026-09-01",
+          "office": "senate",
+          "next": "2026-11-03",
           "pick": "Markey",
           "enthusiasm": "qualified",
           "logged": "2026-08-07"
