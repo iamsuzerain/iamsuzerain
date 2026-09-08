@@ -31,7 +31,16 @@ function smoothPath(xs, ys) {
   for (let i = 0; i < n - 1; i++) delta[i] = (ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]);
   const m = new Array(n);
   m[0] = delta[0];
-  for (let i = 1; i < n - 1; i++) m[i] = (delta[i - 1] + delta[i]) / 2;
+  // Zero at a local extremum, rather than the plain average. The average points
+  // the wrong way through a turning point, and the a^2+b^2 clamp below only
+  // bounds a tangent's magnitude, not its sign, so a small wrong-signed one
+  // survives it and the curve bulges past the peak. Measured on the live feeds
+  // with the plain average: 0.76px of overshoot on the ibkr curve, 2.55px on
+  // polymarket's resolution spikes — which is where it started to matter, since
+  // polymarket used to be drawn with straight segments and now is not.
+  for (let i = 1; i < n - 1; i++) {
+    m[i] = delta[i - 1] * delta[i] <= 0 ? 0 : (delta[i - 1] + delta[i]) / 2;
+  }
   m[n - 1] = delta[n - 2];
   for (let i = 0; i < n - 1; i++) {
     if (Math.abs(delta[i]) < 1e-10) { m[i] = 0; m[i + 1] = 0; continue; }
@@ -44,12 +53,6 @@ function smoothPath(xs, ys) {
     path += ` C${(xs[i] + dx).toFixed(2)},${(ys[i] + m[i] * dx).toFixed(2)} ${(xs[i + 1] - dx).toFixed(2)},${(ys[i + 1] - m[i + 1] * dx).toFixed(2)} ${xs[i + 1].toFixed(2)},${ys[i + 1].toFixed(2)}`;
   }
   return path;
-}
-
-// Straight-segment path, for the series that are deliberately unsplined
-// (polymarket's cumulative pnl and its rewards lines, which are step-like).
-function szLinePath(pts, x, y) {
-  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(2)},${y(p.v).toFixed(2)}`).join(' ');
 }
 
 // ---------- geometry ----------
@@ -382,7 +385,6 @@ function SzToggle({ options, value, onChange, label = (o) => String(o).toLowerCa
 }
 
 window.szSmoothPath = smoothPath;
-window.szLinePath = szLinePath;
 window.szFrame = szFrame;
 window.szScales = szScales;
 window.szDomain = szDomain;

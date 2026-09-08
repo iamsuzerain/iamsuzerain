@@ -11,7 +11,7 @@ const {
 // Chart machinery (Chart.jsx, loaded ahead of this file) — the same box,
 // scales, hover math and gradient stops the ibkr and overview charts use.
 const {
-  szLinePath, szFrame, szScales, szDomain, szAreaPath, szTicks,
+  szSmoothPath: smoothPath, szFrame, szScales, szDomain, szAreaPath, szTicks,
   useChartHover, SzChartSvg, SzChartDefs, SzRule, SzCrosshair, SzCrosshairLine,
   SzTooltip, SzAxisX, SzAxisZero, SzToggle,
 } = window;
@@ -691,9 +691,14 @@ function PmSpark({ series, unit }) {
   const { y0, y1, lo: min, hi: max } = szDomain(values, { pad: 0.08, floor: 1, min: 0 });
   const { x, y } = szScales(F, series.length, y0, y1);
 
-  // Unsplined, unlike the ibkr curve: this is a daily cumulative total that
-  // steps rather than flows, and a spline would invent intraday shape.
-  const line = szLinePath(series, x, y);
+  // Splined, like the ibkr and overview curves. This series is spikier than
+  // theirs — resolutions land as single-day jumps, and 16 of the ~465 segments
+  // move the curve more than 2px off the straight chord where none of ibkr's
+  // do — so the rounding is actually visible here rather than decorative. It
+  // reads better all the same, and the overview already drew this same feed
+  // splined, so straight segments here were the odd page out rather than a
+  // principle the site held.
+  const line = smoothPath(series.map((_, i) => x(i)), series.map(p => y(p.v)));
   // Closed to the floor of the box, not to the zero line — the fill reads as
   // the area under the curve rather than as a signed deviation.
   const area = szAreaPath(line, x(0), x(series.length - 1), F.H - F.PAD_B);
@@ -1252,7 +1257,7 @@ function PmRewardsChart({ rows }) {
   const min = Math.min(...allV, 0), max = Math.max(...allV);
   const y0 = min, y1 = max + ((max - min) * 0.1 || 1);
   const { x, y } = szScales(F, n, y0, y1);
-  const path = (s) => szLinePath(s, x, y);
+  const path = (s) => smoothPath(s.map((_, i) => x(i)), s.map(p => y(p.v)));
 
   return (
     <React.Fragment>
