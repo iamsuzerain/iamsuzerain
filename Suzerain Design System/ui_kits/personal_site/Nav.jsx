@@ -84,7 +84,6 @@ function Nav({ view }) {
           <NavUnitToggle value={unit.value} onChange={unit.onChange}/>
         </div>
       )}
-      <div className="sz-nav-meta">◆ {new Date().getFullYear()} · {(window.CONTENT && window.CONTENT.version) || 'v0.5'}</div>
     </nav>
   );
 }
