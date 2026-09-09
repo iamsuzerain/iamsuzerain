@@ -31,7 +31,11 @@ Pipeline:
          (closed in profit). Sold-early has no resolution truth, so its "win"
          is realized-profit, which is a hit-rate signal, NOT a calibration one.
      Both lots share the entry price, so each still buckets by implied odds.
-  5. Bucket into deciles per series with Wilson 95% bands; headline hit rate,
+  5. Date each lot by the day its shares left the book (last trade if sold,
+     gamma's resolution date if held) and emit them trimmed as `lots`, which is
+     what lets the attribution panel window itself instead of only ever showing
+     a lifetime aggregate.
+  6. Bucket into deciles per series with Wilson 95% bands; headline hit rate,
      Brier score, and mean calibration error (settlement series only, since the
      diagonal is only meaningful there).
 
@@ -300,8 +304,19 @@ def apply_merges(pos, all_rows):
 
 
 def fetch_resolutions(sess, condition_ids):
-    """conditionId -> winning outcomeIndex, for markets gamma reports closed."""
+    """conditionId -> (winning outcomeIndex, resolution date), for closed markets.
+
+    The date rides along because it is free: this call already pulls every
+    resolved market the book touched, and `closedTime` is on the same object.
+    It is what dates a lot that was HELD to resolution (see lot_closed_on) —
+    the last trade on such a position can be months before the money lands.
+
+    `closedTime` is the actual resolution ('2026-05-01 12:00:00+00'); `endDate`
+    is only the SCHEDULED end and can sit either side of it, so it is a fallback
+    rather than a first choice.
+    """
     winners = {}
+    closed_on = {}
     ids = list(condition_ids)
     for i in range(0, len(ids), GAMMA_CHUNK):
         chunk = ids[i:i + GAMMA_CHUNK]
@@ -327,7 +342,10 @@ def fetch_resolutions(sess, condition_ids):
             # Only trust an unambiguous settlement (one outcome ~1).
             if prices[win_idx] >= 0.99:
                 winners[cond] = win_idx
-    return winners
+                stamp = m.get("closedTime") or m.get("endDate")
+                if stamp and len(str(stamp)) >= 10:
+                    closed_on[cond] = str(stamp)[:10]
+    return winners, closed_on
 
 
 def fetch_market_events(sess, ids, closed):
@@ -395,11 +413,14 @@ def fetch_categories(sess, condition_ids):
 
 
 def fetch_open_book(sess, resolved_conds, settled_conds):
-    """Unrealized mark on positions still genuinely open, for the panel's scope note.
+    """Unrealized mark on positions still genuinely open, per position and in total.
 
     Everything else in this file measures CLOSED lots — settled or exited. That
-    leaves the open book invisible, so the panel can't say how much of the story
-    it isn't telling. This quantifies exactly that, and nothing else consumes it.
+    left the open book invisible, and a book with $172k of live cost basis is not
+    a footnote to its own attribution: a category can be quiet in the closed
+    figures because its bets are still riding, which reads as "no activity" when
+    it is the opposite. The per-position rows come back so main can attribute
+    them by category alongside the realized ones.
 
     The trap: /positions keeps RESOLVED-BUT-UNREDEEMED LOSERS. Their curPrice is
     0.00 and currentValue 0, but `redeemable` is True and initialValue still
@@ -455,10 +476,61 @@ def fetch_open_book(sess, resolved_conds, settled_conds):
     }
     log(f"open book: {ob['n']}/{len(rows)} positions live "
         f"({len(rows) - ob['n']} already resolved), unrealized {ob['unrealized']:,.0f}")
-    return ob
+    return ob, live
 
 
-def build_records(pos, winners):
+def open_by_category(live, cats):
+    """Live positions grouped by the same taxonomy the closed lots use.
+
+    `cost` is what is still at risk and `unrealized` is the mark against it —
+    deliberately kept apart from every realized figure rather than added into
+    one number. A mark is an opinion the market is currently holding; a realized
+    P&L is a fact. Merging them would let a category's bar move because nothing
+    happened except a quote, and the panel's whole argument (picking vs sizing,
+    read off resolved outcomes) rests on the distinction.
+    """
+    out = defaultdict(lambda: {"n": 0, "cost": 0.0, "mark": 0.0, "unrealized": 0.0})
+    for p in live:
+        e = out[cats.get(p.get("conditionId"), "other")]
+        e["n"] += 1
+        e["cost"] += float(p.get("initialValue") or 0)
+        e["mark"] += float(p.get("currentValue") or 0)
+        e["unrealized"] += float(p.get("cashPnl") or 0)
+    return {k: {"n": v["n"], "cost": round(v["cost"], 2),
+                "mark": round(v["mark"], 2),
+                "unrealized": round(v["unrealized"], 2)}
+            for k, v in sorted(out.items())}
+
+
+def iso_day(ts):
+    """Activity-feed epoch seconds -> 'YYYY-MM-DD' UTC."""
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(int(ts), timezone.utc).strftime("%Y-%m-%d")
+
+
+def lot_closed_on(p, cond, sold_off, closed_on):
+    """The day a lot's money became final — what the panel's range windows read.
+
+    One rule covers all three lot shapes: a lot closes when its shares LEFT the
+    book. Sold shares left at the last trade; held shares left at resolution.
+
+    That distinction is not pedantry. A position held to resolution can have its
+    last trade months before it pays — dating it by the trade would file the
+    money in the wrong quarter, which is the whole thing these windows exist to
+    get right. Conversely a lot sold at 0.999 into a market resolving a week
+    later (the `decided` branch, booked as a settlement) had its cash in hand at
+    the SALE, so it takes the trade date even though it scores as a settlement.
+
+    Falls back to the last trade when gamma returned no resolution date, which
+    dates the lot slightly early rather than dropping it from every window.
+    """
+    if sold_off:
+        return iso_day(p["lastTs"])
+    return closed_on.get(cond) or iso_day(p["lastTs"])
+
+
+def build_records(pos, winners, closed_on):
     """One position -> up to two lots (settlement + exit), each bucketable."""
     records = []
     for (cond, oi), p in pos.items():
@@ -533,6 +605,8 @@ def build_records(pos, winners):
                        + (held * (1.0 if won else 0.0) - entry * held), 2)
             records.append({**base,
                 "resolvedVia": "settlement",
+                # sold at ~$1 — the cash landed at the trade, not at resolution
+                "closedOn": lot_closed_on(p, cond, True, closed_on),
                 "shares": round(shares, 2),
                 "volume": round(entry * shares, 2),
                 "settlePrice": 1.0 if won else 0.0,
@@ -552,6 +626,7 @@ def build_records(pos, winners):
             rp = round(proceeds - notional, 2)
             records.append({**base,
                 "resolvedVia": "exit",
+                "closedOn": lot_closed_on(p, cond, True, closed_on),
                 "shares": round(sold, 2),
                 "volume": round(notional, 2),
                 "exitPrice": round(exit_price, 4),
@@ -586,6 +661,9 @@ def build_records(pos, winners):
             notional = entry * held
             records.append({**base,
                 "resolvedVia": "settlement",
+                # held to the end — dated by resolution, which is later than the
+                # last trade and is the day this money actually arrived
+                "closedOn": lot_closed_on(p, cond, False, closed_on),
                 "shares": round(held, 2),
                 "volume": round(notional, 2),
                 "settlePrice": 1.0 if won else 0.0,
@@ -785,6 +863,65 @@ def by_category(records):
     return out
 
 
+# Columns of a `lots` row, in order. Arrays rather than objects because this is
+# the one ~900-row array in the payload: repeating seven keys on every row would
+# roughly triple its bytes for data the panel reads positionally anyway.
+LOT_COLUMNS = ["category", "closedOn", "via", "volume", "realizedPnl",
+               "win", "impliedEntry"]
+LOTS_SENTINEL = "__LOTS_GO_HERE__"
+
+
+def lots_rows(records):
+    """Per-lot rows for the attribution panel's range windows.
+
+    `byCategory` is a lifetime aggregate and so cannot be sliced after the fact,
+    which is the whole reason this exists: the panel recomputes category_stats
+    in the browser over whichever window is selected. That needs one row per
+    closed lot — but only the seven fields those statistics actually read, not
+    the full record (title, conditionId, shares, entry/exit/settle prices),
+    which is what keeps this a ~50KB addition rather than a ~500KB one.
+
+    `win` is 1 / 0 / null, null being a push — the same three-way split
+    category_stats draws when it keeps a scratch exit in `n` and `volume` but
+    out of the hit-rate denominator. Collapsing it to a boolean here would make
+    every browser-side window disagree with the lifetime figures beside it.
+
+    Sorted by close date so a daily commit appends rather than reshuffles.
+    """
+    rows = [[r["category"], r["closedOn"],
+             "s" if r["resolvedVia"] == "settlement" else "e",
+             r["volume"], r["realizedPnl"],
+             None if r.get("push") else (1 if r["win"] else 0),
+             r["impliedEntry"]]
+            for r in records]
+    rows.sort(key=lambda x: (x[1] or "", x[0]))
+    return rows
+
+
+def check_lots(records, rows):
+    """Guard: the trimmed rows must reproduce byCategory exactly.
+
+    The panel reads the server's `byCategory` at all-time and its own in-browser
+    recomputation at every other range, so the two sit one toggle apart. If a
+    field ever stops round-tripping through the trim, it surfaces as all-time
+    disagreeing with 12mo on a book that hasn't traded in a year — which reads
+    as a data error rather than the code error it is. Cheap to check here.
+    """
+    faux = [{"category": c, "closedOn": d,
+             "resolvedVia": "settlement" if v == "s" else "exit",
+             "volume": vol, "realizedPnl": pnl,
+             "win": w == 1, "push": w is None, "impliedEntry": imp}
+            for c, d, v, vol, pnl, w, imp in rows]
+    a, b = by_category(records), by_category(faux)
+    bad = [k for k in set(a) | set(b) if a.get(k) != b.get(k)]
+    if bad:
+        log(f"WARNING: lots do not reproduce byCategory for {sorted(bad)}")
+    undated = sum(1 for r in rows if not r[1])
+    if undated:
+        log(f"WARNING: {undated} lots have no close date — invisible to every "
+            f"range but all-time")
+
+
 def main():
     sess = requests.Session(impersonate="chrome124")
     all_rows = []
@@ -812,10 +949,11 @@ def main():
             f"${sum(float(a.get('usdcSize') or 0) for a in conv):,.0f} unattributed")
 
     conds = {cond for (cond, _) in pos.keys()}
-    winners = fetch_resolutions(sess, conds)
-    log(f"{len(winners)}/{len(conds)} markets resolved via gamma")
+    winners, closed_on = fetch_resolutions(sess, conds)
+    log(f"{len(winners)}/{len(conds)} markets resolved via gamma "
+        f"({len(closed_on)} carrying a resolution date)")
 
-    records = build_records(pos, winners)
+    records = build_records(pos, winners, closed_on)
     settle = [r for r in records if r["resolvedVia"] == "settlement"]
     exit_ = [r for r in records if r["resolvedVia"] == "exit"]
     log(f"records: {len(settle)} settlement, {len(exit_)} exit")
@@ -837,9 +975,25 @@ def main():
     uncat = sum(1 for r in records if r["category"] == "other")
     log(f"uncategorized records: {uncat}/{len(records)}")
 
-    open_book = fetch_open_book(
+    open_book, live = fetch_open_book(
         sess, winners.keys(),
         {r["conditionId"] for r in records if r["resolvedVia"] == "settlement"})
+
+    # Almost every live position was bought on the trade feed and so is already
+    # categorized, but not all: shares delivered by a negRisk CONVERSION arrive
+    # without a BUY, so their market never entered `conds`. Categorize the
+    # stragglers rather than letting them pile into "other", which is the one
+    # bucket a reader cannot act on.
+    missing = {p.get("conditionId") for p in live} - set(cats) - {None}
+    if missing:
+        cats.update(fetch_categories(sess, missing))
+        log(f"open book: categorized {len(missing)} live markets not seen in trades")
+    open_cats = open_by_category(live, cats)
+
+    lots = lots_rows(records)
+    check_lots(records, lots)
+    log(f"lots: {len(lots)} closed rows, {lots[0][1]} -> {lots[-1][1]}"
+        if lots else "lots: none")
 
     out = {
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -858,6 +1012,9 @@ def main():
             "bucketEdges": BUCKET_EDGES,
             "category": "gamma event tags -> canonical category; venue tags ignored",
             "minCategoryN": MIN_CATEGORY_N,
+            "closedOn": ("a lot is dated when its shares left the book — the last "
+                         "trade if sold, gamma's resolution date if held"),
+            "lotColumns": LOT_COLUMNS,
         },
         "headline": {
             "settlement": headline(calib, "settlement"),
@@ -872,6 +1029,9 @@ def main():
         # lots, so this is what those bars leave out. Small in this book (+$10k
         # spread thin) but the panel shouldn't make the reader assume that.
         "openBook": open_book,
+        # The same open book split by market type, so the panel can show what is
+        # still riding in a category next to what that category has booked.
+        "openByCategory": open_cats,
         # Companion scope note to openBook: what the CLOSED-lot figures above
         # still don't cover. `hedged` is money that was real but wasn't a
         # forecast (kept in byCategory, dropped from the diagram); `conversions`
@@ -889,13 +1049,20 @@ def main():
             },
             "minLotUsd": MIN_LOT_USD,
         },
-        # Note: the per-lot `positions` array is intentionally NOT emitted — the
-        # panel only reads `buckets` + `headline` (a few KB, fixed size), so
-        # shipping the ~700 raw records would bloat the static payload ~40x for
-        # data the page never renders. Re-add a trimmed version if the UI ever
-        # grows an in-browser drill-down.
+        # The trimmed per-lot rows the attribution panel windows by date. The
+        # FULL records are still not emitted — shipping title, conditionId,
+        # shares and three prices per lot would bloat the payload ~10x for
+        # fields no view reads. See lots_rows for the seven that are kept.
+        "lots": LOTS_SENTINEL,
     }
-    print(json.dumps(out, indent=2))
+
+    # `lots` is serialized one row per line, compact, rather than at indent=2:
+    # seven scalars spread over nine lines each would turn a ~50KB array into
+    # ~350KB, and the daily commit's diff from a legible append into a wall.
+    text = json.dumps(out, indent=2)
+    body = ",\n".join("    " + json.dumps(r, separators=(",", ":")) for r in lots)
+    print(text.replace(f'"{LOTS_SENTINEL}"',
+                       f"[\n{body}\n  ]" if lots else "[]"))
 
 
 main()
