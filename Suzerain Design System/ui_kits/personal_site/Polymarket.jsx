@@ -1204,20 +1204,38 @@ function PmCategoryPanel({ byCategory, lots, asOf, openBook, openByCategory }) {
       <div className="pf-table-wrap pm-cat-table-wrap">
         <table className="pf-table">
           <thead>
+            {/* Two scopes sit in this table and nothing in the column names said
+                so: everything under `closed lots` is scored on finished bets,
+                everything under `open now` is today's mark and ignores the range
+                entirely. The groups are what make that legible — which also
+                forced the column order, since a span can only cover columns that
+                are already adjacent. The last column stands outside both because
+                it is their sum, and it is the one figure here that always equals
+                the bar on the same row. */}
+            <tr className="pf-table-group">
+              <th/>
+              <th className="pf-num" colSpan={7}>
+                closed lots{cutoff && ` · ${pmRangeLabel(range)}`}
+              </th>
+              <th className="pf-num" colSpan={3}>open now</th>
+              <th/>
+            </tr>
             <tr>
               <th>type</th>
               <th className="pf-num">n</th>
               <th className="pf-num">staked</th>
-              {/* Always today's figures, never the window's — a mark has no
-                  history here to slice. The scope line below says so. */}
-              <th className="pf-num pm-cat-open">open</th>
-              <th className="pf-num pm-cat-open">at risk</th>
-              <th className="pf-num pm-cat-open">unreal</th>
               <th className="pf-num">edge/pos</th>
               <th className="pf-num">roi</th>
               <th className="pf-num">resolved</th>
               <th className="pf-num">swing</th>
               <th className="pf-num">top-1</th>
+              <th className="pf-num pm-cat-open">open</th>
+              <th className="pf-num pm-cat-open">at risk</th>
+              <th className="pf-num pm-cat-open">unreal</th>
+              {/* Named for what it sums: the whole book at all-time, and just
+                  the window's realized P&L once the mark drops out — the same
+                  switch the bar foot makes. */}
+              <th className="pf-num">{withOpen ? 'book' : 'p&l'}</th>
             </tr>
           </thead>
           <tbody>
@@ -1235,13 +1253,6 @@ function PmCategoryPanel({ byCategory, lots, asOf, openBook, openByCategory }) {
                       is true, rather than a 0 and a $0 that read as measured. */}
                   <td className="pf-num">{r.c.n || '—'}</td>
                   <td className="pf-num">{r.c.n ? pmUSD(r.c.volume, true) : '—'}</td>
-                  <td className="pf-num pm-cat-open">{r.o.n || '—'}</td>
-                  <td className="pf-num pm-cat-open">
-                    {r.o.n ? pmUSD(r.o.cost, true) : '—'}
-                  </td>
-                  <td className={`pf-num ${r.o.n ? (r.o.unrealized >= 0 ? 'pos' : 'neg') : 'pm-cat-open'}`}>
-                    {r.o.n ? (r.o.unrealized >= 0 ? '+' : '') + pmUSD(r.o.unrealized, true) : '—'}
-                  </td>
                   <td className={`pf-num ${edge == null ? '' : (edge >= 0 ? 'pos' : 'neg')}`}
                     title={edge == null ? 'no resolved bets in this type' : undefined}>
                     {edge != null ? (edge >= 0 ? '+' : '') + (edge * 100).toFixed(1) + 'pp' : '—'}
@@ -1256,6 +1267,16 @@ function PmCategoryPanel({ byCategory, lots, asOf, openBook, openByCategory }) {
                     {r.exit ? pmPct1(r.exit.roi) : '—'}
                   </td>
                   <td className="pf-num pm-cat-top1">{r.c.top1Share != null ? pmPct0(r.c.top1Share) : '—'}</td>
+                  <td className="pf-num pm-cat-open">{r.o.n || '—'}</td>
+                  <td className="pf-num pm-cat-open">
+                    {r.o.n ? pmUSD(r.o.cost, true) : '—'}
+                  </td>
+                  <td className={`pf-num ${r.o.n ? (r.o.unrealized >= 0 ? 'pos' : 'neg') : 'pm-cat-open'}`}>
+                    {r.o.n ? (r.o.unrealized >= 0 ? '+' : '') + pmUSD(r.o.unrealized, true) : '—'}
+                  </td>
+                  <td className={`pf-num pm-cat-book ${r.total >= 0 ? 'pos' : 'neg'}`}>
+                    {r.total >= 0 ? '+' : ''}{pmUSD(r.total, true)}
+                  </td>
                 </tr>
               );
             })}

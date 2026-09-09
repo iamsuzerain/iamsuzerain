@@ -914,6 +914,19 @@
      `unreal` keeps its pos/neg colour when there is something open — a live
      mark is the one figure here a reader will want to find at a glance. */
   .pm-cat-open { color: var(--fg-4); }
+  /* Scope banding over the column names. Set smaller and dimmer than the names
+     beneath, since it labels them rather than competing with them, and the rule
+     runs only under the spans — the ungrouped `type` and `book` columns get no
+     underline, which is what tells you they sit outside both groups. */
+  .pf-table-group th {
+    padding-bottom: 3px; font-size: 9px; letter-spacing: 0.16em;
+    color: var(--fg-4); opacity: 0.75; border-bottom: none;
+  }
+  .pf-table-group th[colspan] {
+    border-bottom: 1px solid rgba(167,139,250,0.22);
+  }
+  /* The row's total, and the one column that always equals the bar beside it. */
+  .pm-cat-book { font-weight: 500; }
   /* Scope note — what the bars leave out. Borrows .pf-contrib-foot's type scale
      but drops its rule: the table above already ends on a border, and two hairlines
      14px apart read as a broken cell rather than a divider. */
