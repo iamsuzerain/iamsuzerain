@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T03:12:01Z",
+  "generatedAt": "2026-09-09T11:31:02Z",
   "wallets": [
     "0xcbab47f889ffffbb603f600a5feeb0eca0cc9a8a",
     "0xfaf680c17a9cca24ff0773ae2d9f7db49c02cc47"
@@ -594,13 +594,13 @@
     "macro": {
       "combined": {
         "n": 23,
-        "volume": 216052.72,
-        "realizedPnl": 870.47,
-        "roi": 0.004,
-        "hitRate": 0.8261,
-        "avgImplied": 0.8401,
-        "edge": -0.014,
-        "top1Share": 0.2265
+        "volume": 224914.87,
+        "realizedPnl": 814.78,
+        "roi": 0.0036,
+        "hitRate": 0.7826,
+        "avgImplied": 0.8406,
+        "edge": -0.058,
+        "top1Share": 0.2262
       },
       "settlement": {
         "n": 11,
@@ -614,13 +614,13 @@
       },
       "exit": {
         "n": 12,
-        "volume": 152476.33,
-        "realizedPnl": -520.5,
-        "roi": -0.0034,
-        "hitRate": 0.75,
-        "avgImplied": 0.7642,
-        "edge": -0.0142,
-        "top1Share": 0.3977
+        "volume": 161338.48,
+        "realizedPnl": -576.19,
+        "roi": -0.0036,
+        "hitRate": 0.6667,
+        "avgImplied": 0.7651,
+        "edge": -0.0984,
+        "top1Share": 0.3966
       }
     },
     "other": {
@@ -744,28 +744,28 @@
   },
   "openBook": {
     "n": 104,
-    "cost": 175529.79,
-    "mark": 202775.18,
-    "unrealized": 27245.38
+    "cost": 219515.01,
+    "mark": 244314.94,
+    "unrealized": 24799.93
   },
   "openByCategory": {
     "commodities": {
       "n": 2,
       "cost": 2601.61,
-      "mark": 2580.17,
-      "unrealized": -21.44
+      "mark": 2584.06,
+      "unrealized": -17.55
     },
     "geopolitics": {
       "n": 30,
       "cost": 65163.98,
-      "mark": 71520.5,
-      "unrealized": 6356.51
+      "mark": 71453.55,
+      "unrealized": 6289.56
     },
     "macro": {
       "n": 3,
-      "cost": 32510.05,
-      "mark": 44929.06,
-      "unrealized": 12419.0
+      "cost": 76495.27,
+      "mark": 86511.21,
+      "unrealized": 10015.93
     },
     "other": {
       "n": 1,
@@ -776,14 +776,14 @@
     "politics": {
       "n": 57,
       "cost": 65512.56,
-      "mark": 66855.45,
-      "unrealized": 1342.89
+      "mark": 66883.33,
+      "unrealized": 1370.76
     },
     "sports": {
       "n": 10,
       "cost": 7619.69,
-      "mark": 14762.49,
-      "unrealized": 7142.8
+      "mark": 14755.29,
+      "unrealized": 7135.6
     },
     "tech": {
       "n": 1,
@@ -796,7 +796,7 @@
     "hedged": {
       "markets": 14,
       "records": 33,
-      "realizedPnl": -4217.19
+      "realizedPnl": -4272.88
     },
     "conversions": {
       "rows": 50,
@@ -1581,7 +1581,7 @@
     ["geopolitics","2026-07-30","e",94.5,2.1,1,0.45],
     ["geopolitics","2026-07-30","s",1352.42,73.07,1,0.9487],
     ["geopolitics","2026-07-30","s",7350.86,72.68,1,0.9902],
-    ["macro","2026-07-30","e",880.59,-9.76,0,0.4925],
+    ["macro","2026-07-30","e",880.59,-16.6,0,0.4925],
     ["macro","2026-07-30","e",24979.13,-537.71,0,0.5723],
     ["politics","2026-07-30","e",690.0,-682.0,0,0.69],
     ["sports","2026-07-30","e",31.65,-29.13,0,0.0619],
@@ -1753,6 +1753,6 @@
     ["sports","2026-09-07","e",1450.12,-1040.29,0,0.6369],
     ["sports","2026-09-07","e",675.65,1041.18,1,0.231],
     ["geopolitics","2026-09-08","e",2713.52,-871.95,0,0.8482],
-    ["macro","2026-09-09","e",7131.63,25.95,1,0.5134]
+    ["macro","2026-09-09","e",15993.78,-22.9,0,0.5243]
   ]
 }
