@@ -842,6 +842,12 @@
   }
   .pf-contrib-bar.pos { background: var(--mark-pos-wash); border-color: var(--mark-pos); }
   .pf-contrib-bar.neg { background: var(--mark-neg-wash); border-color: var(--mark-neg); }
+  /* The unrealized continuation of a bar: same stroke, same hue, carried at
+     lower opacity. Booked money and marked money are different kinds of claim
+     and the bar has to say so — but with weight, not with a second colour and
+     not with a dash, which would read as a boundary rather than as a softer
+     version of the same quantity. */
+  .pf-contrib-bar.mark { opacity: 0.45; }
   .pf-contrib-val {
     font-family: var(--font-mono); font-size: 11px; text-align: right; letter-spacing: 0.02em;
   }
@@ -891,6 +897,9 @@
      shared bar treatment. Category/asset-class names are longer than tickers, so
      the label column is 118px (fits "futures options"/"event contracts") vs the
      64px .pf-contrib-row default. */
+  /* position:relative so the hover box positions and clamps against this list
+     rather than escaping to the panel. */
+  .pm-cat-bars { position: relative; }
   .pm-cat-bars .pf-contrib-row { grid-template-columns: 118px 1fr 96px; }
   .pm-cat-bars .pf-contrib-sym { text-transform: lowercase; }
   .pm-cat-table-wrap { margin-top: 18px; padding-top: 4px; border-top: 1px solid var(--border-soft); }
@@ -899,6 +908,12 @@
   /* top-1 is a reference-context column, not a headline metric — muted so the
      eye lands on edge/pos and roi first. */
   .pm-cat-top1 { color: var(--fg-4); }
+  /* The open-book columns report NOW while everything around them can be
+     windowed, so they are set back a step: present for the reader who is asking
+     what is still riding, not competing with the scored columns beside them.
+     `unreal` keeps its pos/neg colour when there is something open — a live
+     mark is the one figure here a reader will want to find at a glance. */
+  .pm-cat-open { color: var(--fg-4); }
   /* Scope note — what the bars leave out. Borrows .pf-contrib-foot's type scale
      but drops its rule: the table above already ends on a border, and two hairlines
      14px apart read as a broken cell rather than a divider. */
@@ -1201,11 +1216,43 @@
     border-right: 1px solid rgba(167,139,250,0.35);
     border-bottom: 1px solid rgba(167,139,250,0.35);
   }
+  /* Flipped variant: box under the anchor, arrow on top. A chart's tooltip sits
+     above its column because a column has a whole chart's height above it. The
+     attribution bars are a 160px stack of 20px rows, so no row does — the box
+     is taller than the list it belongs to and can only hang downward. */
+  .pm-tooltip.below { transform: translate(calc(-50% + var(--tt-shift, 0px)), 14px); }
+  .pm-tooltip.below::after {
+    bottom: auto; top: -5px;
+    border-right: none; border-bottom: none;
+    border-left: 1px solid rgba(167,139,250,0.35);
+    border-top: 1px solid rgba(167,139,250,0.35);
+  }
   .pm-tt-date { font-size: 10px; color: var(--fg-4); letter-spacing: 0.08em; text-transform: uppercase; }
   .pm-tt-val  { font-size: 13px; font-weight: 500; margin-top: 2px; }
   .pm-tt-val.pos { color: var(--pos); }
   .pm-tt-val.neg { color: var(--neg); }
   .pf-tt-bench { font-size: 10px; margin-top: 2px; letter-spacing: 0.04em; }
+
+  /* Attribution hover. Label left, figure right, so the numbers stack into a
+     column the eye runs straight down instead of hunting along each line. The
+     groups are separated by a rule at the same low contrast as the box border —
+     the split (realized vs marked) and the size (staked vs at risk) are two
+     different questions and shouldn't read as one list of four. */
+  .pm-cat-tt .pm-tt-val { display: flex; align-items: baseline; gap: 8px; }
+  .pm-cat-tt-scope {
+    font-size: 9px; color: var(--fg-4); letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .pm-cat-tt-split {
+    margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(167,139,250,0.22);
+  }
+  .pm-cat-tt-row {
+    display: flex; justify-content: space-between; gap: 20px;
+    font-size: 10px; letter-spacing: 0.04em; color: var(--fg-3);
+  }
+  .pm-cat-tt-row + .pm-cat-tt-row { margin-top: 2px; }
+  .pm-cat-tt-row span:first-child { color: var(--fg-4); }
+  .pm-cat-tt-row .pos { color: var(--pos); }
+  .pm-cat-tt-row .neg { color: var(--neg); }
 
   /* Benchmark overlay legend (portfolio chart) */
   .pf-bench-legend {

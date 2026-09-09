@@ -875,73 +875,330 @@ function PmBreakdown({ bd, tradingPnl }) {
 // edge/pos ≈ 0 (fairly priced) beside a deeply negative roi = the picking was
 // fine and the sizing wasn't. top-1 (share of gross p&l in the single biggest
 // move) guards against reading one trade as a category.
-// From the polymarket-calibration daily cron (`byCategory`).
+// From the polymarket-calibration daily cron (`byCategory` and `lots`).
 const PM_CAT_MIN_N = 25;    // below this the row is noise — dimmed, not dropped
 // A category whose |P&L| is under this fraction of the largest bar renders as a
 // 1px speck indistinguishable from the zero-line divider. Plot only material
 // movers (like the contribution-to-return chart); the table keeps the full tail.
 const PM_CAT_BAR_FLOOR = 0.01;
 
-function PmCategoryPanel({ byCategory, openBook }) {
+// A lifetime aggregate is the wrong instrument for a book whose shape changed,
+// and at 2026-09-08 it was hiding the damage rather than exaggerating it.
+// Commodities reads -$86.5k all-time over 126 lots; window it to 3mo and it
+// reads -$98.1k over 62. The whole loss and more landed in one quarter, netted
+// in the lifetime figure against an earlier commodities book that had been
+// mildly positive. Net over the window is -$34.9k against -$13.0k all-time.
+//
+// It is also why this panel cannot be read off the headline. Cumulative trading
+// P&L rose ~$36k over roughly the same three months while the closed lots inside
+// them summed to -$34.9k — both true, because the open book's marks moved the
+// other way (see the scope line's `openBook`, +$27.2k unrealized). Attribution
+// scores decisions that finished; the headline also carries ones that haven't.
+//
+// The short end is deliberately absent. 1M leaves ~40 lots to divide among ten
+// categories, i.e. every row under PM_CAT_MIN_N and an `edge` column (settled
+// lots only) that is mostly em-dashes — a window that reports nothing but its
+// own thinness. 3M is the shortest span this book fills.
+const PM_CAT_RANGES = ['3M', '6M', 'YTD', '1Y', 'MAX'];
+
+// Mirrors category_stats in fetch-polymarket-calibration.py: same fields, same
+// order, same definitions. Deliberately literal rather than clever, because the
+// two have to keep agreeing — all-time reads the server's figures and every
+// other range reads these, one toggle apart. The generator checks the round
+// trip on every run (check_lots) so drift is caught there, not by a reader.
+function pmCatStats(rows) {
+  const n = rows.length;
+  if (!n) return null;
+  const decided = rows.filter(r => !r.push);
+  const wins = decided.filter(r => r.win).length;
+  const vol = rows.reduce((a, r) => a + r.volume, 0);
+  const pnl = rows.reduce((a, r) => a + r.realizedPnl, 0);
+  const avgImplied = rows.reduce((a, r) => a + r.impliedEntry, 0) / n;
+  const gross = rows.reduce((a, r) => a + Math.abs(r.realizedPnl), 0);
+  const hit = decided.length ? wins / decided.length : null;
+  return {
+    n,
+    volume: vol,
+    realizedPnl: pnl,
+    roi: vol ? pnl / vol : null,
+    hitRate: hit,
+    avgImplied,
+    edge: hit == null ? null : hit - avgImplied,
+    top1Share: gross ? Math.max(...rows.map(r => Math.abs(r.realizedPnl))) / gross : null,
+  };
+}
+
+// `lots` rows are positional arrays — the column order is carried in the feed's
+// own method.lotColumns, and named here once so nothing downstream indexes them.
+// `win` is 1 / 0 / null, null meaning a push: in `n` and `volume`, out of the
+// hit-rate denominator, exactly as the generator has it.
+function pmLotRow([category, closedOn, via, volume, realizedPnl, win, impliedEntry]) {
+  return {
+    category, closedOn,
+    resolvedVia: via === 's' ? 'settlement' : 'exit',
+    volume, realizedPnl,
+    win: win === 1, push: win == null,
+    impliedEntry,
+  };
+}
+
+// Rebuilds the `byCategory` shape from whatever lots fall inside a window, so
+// the render path below never learns which source it is reading.
+function pmByCategory(rows) {
+  const groups = {};
+  for (const r of rows) (groups[r.category] || (groups[r.category] = [])).push(r);
+  const out = {};
+  for (const cat of Object.keys(groups)) {
+    const entry = { combined: pmCatStats(groups[cat]) };
+    for (const series of ['settlement', 'exit']) {
+      const s = pmCatStats(groups[cat].filter(r => r.resolvedVia === series));
+      if (s) entry[series] = s;
+    }
+    out[cat] = entry;
+  }
+  return out;
+}
+
+// A category can be entirely unresolved — every bet in it still riding — and it
+// still belongs in the panel. Its closed side falls back to this rather than the
+// row being dropped for having no history yet.
+const PM_CAT_NO_CLOSED = {
+  n: 0, volume: 0, realizedPnl: 0,
+  roi: null, hitRate: null, avgImplied: null, edge: null, top1Share: null,
+};
+const PM_CAT_NO_OPEN = { n: 0, cost: 0, mark: 0, unrealized: 0 };
+
+function PmCategoryPanel({ byCategory, lots, asOf, openBook, openByCategory }) {
   const [sort, setSort] = usePmState('pnl');
+  const [range, setRange] = usePmState('MAX');
+  const [hover, setHover] = usePmState(null);
   if (!byCategory) return null;
 
-  const rows = Object.entries(byCategory)
-    .map(([cat, v]) => ({
-      cat,
-      c: v.combined,
-      settle: v.settlement || null,
-      exit: v.exit || null,
-    }))
-    .filter(r => r.c && r.c.n);
-  if (!rows.length) return null;
+  // Both are required to window at all: an older cached feed carries neither,
+  // and the panel then renders exactly as it did before, all-time and untoggled.
+  const hasLots = Array.isArray(lots) && lots.length > 0 && /^\d{4}-\d\d-\d\d$/.test(asOf || '');
+  // Cut from the feed's generation day, not from the newest close: "3mo" has to
+  // mean the three months up to today, or a quiet fortnight silently slides the
+  // window back and the panel stops being the current thing it claims to be.
+  //
+  // Membership is a plain `closedOn >= cutoff` for trailing AND calendar ranges
+  // alike. The cumulative curve needs szRangeBaseIndex's calendar/trailing split
+  // because it rebases against a prior close; these are discrete events with
+  // nothing to rebase, so the first day inside the period is simply the first
+  // day that counts.
+  const cutoff = hasLots && range !== 'MAX' ? pmRangeCutoff(range, asOf) : null;
+  const inWindow = cutoff
+    ? lots.map(pmLotRow).filter(r => r.closedOn && r.closedOn >= cutoff)
+    : null;
+  const src = inWindow ? pmByCategory(inWindow) : byCategory;
+
+  // The open book joins the bars ONLY at all-time, and the reason is that a mark
+  // cannot be sliced by date. A closed lot has a day it landed on; a live
+  // position has one number, today's, and no history of what it was marked at
+  // three months ago. Adding today's mark to a three-month realized figure would
+  // produce something that is neither a period P&L nor a book total — so a
+  // window shows what closed inside it, full stop, and says so.
+  //
+  // The `open` and `unreal` COLUMNS stay visible in every range regardless,
+  // because "what is still riding in this category" is a fact about now that a
+  // reader wants whichever window they are looking through.
+  const openSrc = openByCategory || null;
+  const withOpen = !cutoff && !!openSrc;
+
+  const rows = [...new Set([...Object.keys(src), ...Object.keys(openSrc || {})])]
+    .map(cat => {
+      const v = src[cat] || {};
+      const c = v.combined || PM_CAT_NO_CLOSED;
+      const o = (openSrc && openSrc[cat]) || PM_CAT_NO_OPEN;
+      // `unreal` is what the bars are allowed to add; `o.unrealized` is what the
+      // columns always report. They differ inside a window, deliberately.
+      const unreal = withOpen ? o.unrealized : 0;
+      return {
+        cat, c, o, unreal,
+        total: c.realizedPnl + unreal,
+        stake: c.volume + (withOpen ? o.cost : 0),
+        settle: v.settlement || null,
+        exit: v.exit || null,
+      };
+    })
+    .filter(r => r.c.n || r.o.n);
+
+  const head = (
+    <div className="pf-panel-head">
+      <span className="pf-panel-title">attribution · by market type</span>
+      <div className="pf-panel-head-right">
+        {/* What the bars are, in the slot the pnl chart uses for the same job,
+            and directly beside the control that changes it. The bars lose their
+            faded segments the moment you leave all-time, and without this the
+            only account of why is a scope note below a 300px table — read after
+            the numbers, if at all. Scope belongs in front of them. */}
+        <span className="pf-panel-meta">
+          {withOpen ? 'closed + open mark' : 'closed lots only'}
+        </span>
+        <div className="pf-range">
+          {hasLots && <SzToggle options={PM_CAT_RANGES} value={range}
+            onChange={setRange} label={pmRangeLabel}/>}
+          {/* the same hairline divider the pnl chart puts between its range and
+              unit toggles, so two groups in one head read as two groups */}
+          <span className={`pf-unit${hasLots ? ' pf-range-unit' : ''}`}>
+            <SzToggle options={[['pnl', 'p&l'], ['volume', 'stake']]}
+              value={sort} onChange={setSort}/>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+
+  // A window can be legitimately empty: nothing RESOLVED inside it. On a book
+  // this long-dated that is a real state, not an error — and returning null
+  // would take the range toggle down with the table, stranding the reader in a
+  // window with no control left to leave it by.
+  if (!rows.length) {
+    return (
+      <div className="pf-panel">
+        {head}
+        <div className="pf-contrib-foot pm-cat-scope">
+          <span>no lots closed in {pmRangeLabel(range)}</span>
+        </div>
+      </div>
+    );
+  }
 
   rows.sort(sort === 'pnl'
-    ? (a, b) => b.c.realizedPnl - a.c.realizedPnl
-    : (a, b) => b.c.volume - a.c.volume);
+    ? (a, b) => b.total - a.total
+    : (a, b) => b.stake - a.stake);
 
-  const maxAbs = Math.max(...rows.map(r => Math.abs(r.c.realizedPnl)), 1);
-  const net = rows.reduce((a, r) => a + r.c.realizedPnl, 0);
-  const barRows = rows.filter(r => Math.abs(r.c.realizedPnl) >= maxAbs * PM_CAT_BAR_FLOOR);
+  // Scale on whichever end is further out. A category whose mark has carried it
+  // past its realized figure (or back across zero) must not overflow the track.
+  const maxAbs = Math.max(
+    ...rows.map(r => Math.max(Math.abs(r.c.realizedPnl), Math.abs(r.total))), 1);
+  const net = rows.reduce((a, r) => a + r.total, 0);
+  const barRows = rows.filter(r =>
+    Math.max(Math.abs(r.c.realizedPnl), Math.abs(r.total)) >= maxAbs * PM_CAT_BAR_FLOOR);
+  // Track coordinate for a dollar figure: 50% is the zero line, ±50% the edges.
+  const at = (v) => 50 + (v / maxAbs) * 50;
 
   return (
     <div className="pf-panel">
-      <div className="pf-panel-head">
-        <span className="pf-panel-title">attribution · by market type</span>
-        <div className="pf-range">
-          <SzToggle options={[['pnl', 'p&l'], ['volume', 'stake']]}
-            value={sort} onChange={setSort}/>
-        </div>
-      </div>
+      {head}
 
-      <div className="pf-contrib pm-cat-bars">
+      <div className="pf-contrib pm-cat-bars" onMouseLeave={() => setHover(null)}>
         {barRows.map(r => {
-          const w = (Math.abs(r.c.realizedPnl) / maxAbs) * 50;
-          const pos = r.c.realizedPnl >= 0;
+          // Two segments on one track. The solid one runs zero -> realized; the
+          // faded one carries on from there to the total, so its length IS the
+          // mark and its direction says whether the open book is adding to the
+          // booked figure or handing it back. When they disagree in sign the
+          // faded segment retraces toward zero, which is the honest picture and
+          // needs no extra encoding to read.
+          const ends = (a, b) => ({ left: `${Math.min(a, b)}%`, width: `${Math.abs(b - a)}%` });
+          const realized = ends(50, at(r.c.realizedPnl));
+          const mark = ends(at(r.c.realizedPnl), at(r.total));
+          const pos = r.total >= 0;
+          // The box always hangs BELOW its row, which is the only placement the
+          // geometry actually allows: it stands ~140px tall against a list of
+          // 20px rows that is 160px from end to end, so there is no row with
+          // enough clear space above it — a flip for the lower half would just
+          // push the box up through the panel head instead of down. Below, it
+          // overlays the table, which costs nothing: it is pointer-transparent
+          // and gone the moment the cursor leaves.
+          //
+          // Anchored on the row's bottom edge rather than the pointer's y so it
+          // sits against the bar it describes instead of wobbling. Horizontally
+          // it does follow the pointer — that is what gives SzTooltip's clamp
+          // something to keep inside the panel.
+          const onRow = (e) => {
+            const row = e.currentTarget, wrap = row.offsetParent;
+            if (!wrap) return;
+            setHover({
+              cat: r.cat,
+              x: e.clientX - wrap.getBoundingClientRect().left,
+              y: row.offsetTop + row.offsetHeight,
+              W: wrap.clientWidth, H: wrap.clientHeight,
+            });
+          };
           return (
             <div className="pf-contrib-row" key={r.cat}
-              title={`${r.c.n} positions · ${pmUSD(r.c.volume)} staked`}>
+              onMouseEnter={onRow} onMouseMove={onRow}>
               <span className={`pf-contrib-sym${r.c.n < PM_CAT_MIN_N ? ' pm-cat-thin' : ''}`}>
                 {r.cat}
               </span>
               <div className="pf-contrib-track">
                 <div className="pf-contrib-center"/>
-                <div className={`pf-contrib-bar ${pos ? 'pos' : 'neg'}`}
-                  style={pos ? { left: '50%', width: `${w}%` } : { right: '50%', width: `${w}%` }}/>
+                {r.c.realizedPnl !== 0 && (
+                  <div className={`pf-contrib-bar ${r.c.realizedPnl >= 0 ? 'pos' : 'neg'}`}
+                    style={realized}/>
+                )}
+                {r.unreal !== 0 && (
+                  <div className={`pf-contrib-bar mark ${r.unreal >= 0 ? 'pos' : 'neg'}`}
+                    style={mark}/>
+                )}
               </div>
               <span className={`pf-contrib-val ${pos ? 'pos' : 'neg'}`}>
-                {pos ? '+' : ''}{pmUSD(r.c.realizedPnl)}
+                {pos ? '+' : ''}{pmUSD(r.total)}
               </span>
             </div>
           );
         })}
         <div className="pf-contrib-foot">
           <span>
-            {rows.length} market types
+            {rows.length} market types · {rows.reduce((a, r) => a + r.c.n, 0)} lots
             {barRows.length < rows.length && ` · ${rows.length - barRows.length} near zero`}
           </span>
-          <span>net {net >= 0 ? '+' : ''}{pmUSD(net)}</span>
+          <span>
+            {withOpen ? 'book ' : 'net '}{net >= 0 ? '+' : ''}{pmUSD(net)}
+          </span>
         </div>
+
+        {/* The box carries what the bar can't: the dollar split behind its two
+            segments, and the size of the position on either side of it. It
+            deliberately doesn't repeat edge/pos or roi — those are a column
+            scan away in the table below, and a hover that mirrors the table is
+            just a second table you have to hold still to read.
+
+            SzTooltip is the chart's own box; handing it a frame measured off
+            this container rather than a chart's viewBox gets the same styling
+            and, more usefully, the same edge clamping, so a hover on the
+            left-hand category names doesn't push it out of the panel. */}
+        {hover && (() => {
+          const r = barRows.find(b => b.cat === hover.cat);
+          if (!r) return null;
+          const money = (v) => `${v >= 0 ? '+' : ''}${pmUSD(v)}`;
+          const tone = (v) => (v >= 0 ? 'pos' : 'neg');
+          return (
+            <SzTooltip frame={{ W: hover.W, H: hover.H }} x={hover.x} y={hover.y}
+              className="pm-cat-tt below">
+              <div className="pm-tt-date">{r.cat}</div>
+              <div className={`pm-tt-val ${tone(r.total)}`}>
+                {money(r.total)}
+                <span className="pm-cat-tt-scope">
+                  {withOpen ? 'book' : pmRangeLabel(range)}
+                </span>
+              </div>
+              {r.unreal !== 0 && (
+                <div className="pm-cat-tt-split">
+                  <div className="pm-cat-tt-row">
+                    <span>realized</span>
+                    <span className={tone(r.c.realizedPnl)}>{money(r.c.realizedPnl)}</span>
+                  </div>
+                  <div className="pm-cat-tt-row">
+                    <span>marked</span>
+                    <span className={tone(r.unreal)}>{money(r.unreal)}</span>
+                  </div>
+                </div>
+              )}
+              <div className="pm-cat-tt-split">
+                <div className="pm-cat-tt-row">
+                  <span>{r.c.n} closed {r.c.n === 1 ? 'lot' : 'lots'}</span>
+                  <span>{pmUSD(r.c.volume, true)} staked</span>
+                </div>
+                <div className="pm-cat-tt-row">
+                  <span>{r.o.n ? `${r.o.n} open` : 'nothing open'}</span>
+                  <span>{r.o.n ? `${pmUSD(r.o.cost, true)} at risk` : '—'}</span>
+                </div>
+              </div>
+            </SzTooltip>
+          );
+        })()}
       </div>
 
       <div className="pf-table-wrap pm-cat-table-wrap">
@@ -951,6 +1208,11 @@ function PmCategoryPanel({ byCategory, openBook }) {
               <th>type</th>
               <th className="pf-num">n</th>
               <th className="pf-num">staked</th>
+              {/* Always today's figures, never the window's — a mark has no
+                  history here to slice. The scope line below says so. */}
+              <th className="pf-num pm-cat-open">open</th>
+              <th className="pf-num pm-cat-open">at risk</th>
+              <th className="pf-num pm-cat-open">unreal</th>
               <th className="pf-num">edge/pos</th>
               <th className="pf-num">roi</th>
               <th className="pf-num">resolved</th>
@@ -967,13 +1229,26 @@ function PmCategoryPanel({ byCategory, openBook }) {
               return (
                 <tr key={r.cat} className={r.c.n < PM_CAT_MIN_N ? 'pm-cat-thin-row' : ''}>
                   <td className="pf-sym">{r.cat}</td>
-                  <td className="pf-num">{r.c.n}</td>
-                  <td className="pf-num">{pmUSD(r.c.volume, true)}</td>
+                  {/* A category can be all open book and no closed lots yet, in
+                      which case the scored columns have nothing to say — an
+                      em-dash, the same as the open columns use when the reverse
+                      is true, rather than a 0 and a $0 that read as measured. */}
+                  <td className="pf-num">{r.c.n || '—'}</td>
+                  <td className="pf-num">{r.c.n ? pmUSD(r.c.volume, true) : '—'}</td>
+                  <td className="pf-num pm-cat-open">{r.o.n || '—'}</td>
+                  <td className="pf-num pm-cat-open">
+                    {r.o.n ? pmUSD(r.o.cost, true) : '—'}
+                  </td>
+                  <td className={`pf-num ${r.o.n ? (r.o.unrealized >= 0 ? 'pos' : 'neg') : 'pm-cat-open'}`}>
+                    {r.o.n ? (r.o.unrealized >= 0 ? '+' : '') + pmUSD(r.o.unrealized, true) : '—'}
+                  </td>
                   <td className={`pf-num ${edge == null ? '' : (edge >= 0 ? 'pos' : 'neg')}`}
                     title={edge == null ? 'no resolved bets in this type' : undefined}>
                     {edge != null ? (edge >= 0 ? '+' : '') + (edge * 100).toFixed(1) + 'pp' : '—'}
                   </td>
-                  <td className={`pf-num ${r.c.roi >= 0 ? 'pos' : 'neg'}`}>{pmPct1(r.c.roi)}</td>
+                  <td className={`pf-num ${r.c.roi == null ? '' : (r.c.roi >= 0 ? 'pos' : 'neg')}`}>
+                    {pmPct1(r.c.roi)}
+                  </td>
                   <td className={`pf-num ${r.settle ? (r.settle.roi >= 0 ? 'pos' : 'neg') : ''}`}>
                     {r.settle ? pmPct1(r.settle.roi) : '—'}
                   </td>
@@ -988,14 +1263,29 @@ function PmCategoryPanel({ byCategory, openBook }) {
         </table>
       </div>
 
-      {/* Scope. Every number above is a CLOSED lot — resolved or swing — because
-          you can't score a forecast that hasn't resolved. The net therefore sits
-          below the headline trading P&L, which marks the open book too, and the
-          two being adjacent and unequal reads as a contradiction without this.
-          They reconcile: closed + open ≈ headline, the remainder being fees. */}
+      {/* Scope. At all-time the bars carry the whole book — realized lots plus
+          the mark on what is still open — which is what reconciles this panel
+          with the headline trading P&L (closed + open ≈ headline, the remainder
+          being fees). The two sitting adjacent and unequal read as a
+          contradiction before the open half was in here.
+
+          Inside a window they cannot both be shown: the realized side slices by
+          close date and the mark has no date to slice by. So a window drops back
+          to closed lots. The `open`/`at risk`/`unreal` columns keep reporting
+          now either way — they answer "what is still riding", not "what happened
+          in the window".
+
+          Which of the two is on screen is the head meta's job, above the bars.
+          This line carries what that caption can't fit: which KINDS of lot are
+          in scope, and — in a window — why the open figure on its right is not
+          in the bars on its left. */}
       {openBook && (
         <div className="pf-contrib-foot pm-cat-scope">
-          <span>closed lots only · resolved or swing</span>
+          <span>
+            {withOpen
+              ? 'resolved, swing or live'
+              : `resolved or swing · ${pmRangeLabel(range)}, open book excluded`}
+          </span>
           <span>
             {openBook.n} open{' '}
             <b className={openBook.unrealized >= 0 ? 'pos' : 'neg'}>
@@ -1630,7 +1920,9 @@ function Polymarket() {
         </div>
       )}
 
-      {cal && <PmCategoryPanel byCategory={cal.byCategory} openBook={cal.openBook}/>}
+      {cal && <PmCategoryPanel byCategory={cal.byCategory} lots={cal.lots}
+        asOf={(cal.generatedAt || '').slice(0, 10)} openBook={cal.openBook}
+        openByCategory={cal.openByCategory}/>}
 
       {cal && <PmCalibration cal={cal}/>}
 
