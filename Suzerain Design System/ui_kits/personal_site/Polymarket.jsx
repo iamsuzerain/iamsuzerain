@@ -1559,6 +1559,11 @@ function PmRewardsChart({ rows }) {
       fill: 'url(#pm-rewards-fill)', width: 1.9,
       series: rows.map(r => ({ d: r.d, v: pmRewardsTotal(r) - pmRewardsTotal(first) })) },
   ];
+  // The total is the headline three ways: drawn last so it sits on top of its
+  // own components, read first in the tooltip, and the curve the tooltip box
+  // rides. The parts follow it in the order the legend lists them.
+  const totalLine = lines[lines.length - 1];
+  const ttLines = [totalLine, ...lines.slice(0, -1)];
   const n = rows.length;
   const allV = lines.flatMap(l => l.series.map(p => p.v));
   // Asymmetric on purpose: these are cumulative income curves rebased to 0 on
@@ -1595,10 +1600,14 @@ function PmRewardsChart({ rows }) {
             fill={l.color} stroke="#f5f0ff" strokeWidth="1"/>
         ))}
       </SzChartSvg>
+      {/* Anchored to the total rather than pinned at a fixed height: the box
+          climbs with the curve it leads with, so the figure and the point it
+          reads off never drift apart. The total is the topmost curve, so it is
+          also the anchor that keeps the box clear of the other two. */}
       {hv.i != null && (
-        <SzTooltip frame={F} x={x(hv.i)} top="4%">
+        <SzTooltip frame={F} x={x(hv.i)} y={y(totalLine.series[hv.i].v)}>
           <div className="pm-tt-date">{rows[hv.i].d}</div>
-          {lines.map(l => (
+          {ttLines.map(l => (
             <div key={l.key} className="pf-tt-bench" style={{ color: l.color }}>
               {l.label} +{pmUSD(l.series[hv.i].v)}
             </div>
