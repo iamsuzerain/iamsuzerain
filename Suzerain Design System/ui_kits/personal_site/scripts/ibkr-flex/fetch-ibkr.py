@@ -785,7 +785,7 @@ def rf_steps(dates: list[str], rf_rows: list[dict], periods: int = TRADING_DAYS)
     interest for weekends the 252-day annualization does not count as elapsed
     time, leaving the numerator's two halves on different calendars and the
     printed rf a tenth of a point below the rate a reader can look up. One
-    convention per series is the whole point — the overview passes periods=365
+    convention per series is the whole point — the book view passes periods=365
     against its calendar-daily curve and gets the same treatment.
 
     EFFR publishes on business days only, so the lookup carries the last

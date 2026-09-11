@@ -54,7 +54,7 @@ function StreamEntry({ entry }) {
     : <div className="sz-log-entry">{inner}</div>;
 }
 
-// No CTA row under the sub. It was overview / ibkr / polymarket, which is three
+// No CTA row under the sub. It was book / ibkr / polymarket, which is three
 // of the seven destinations the nav already carries — and the nav is on screen
 // at the same moment, one line above it.
 function Hero() {

@@ -268,7 +268,7 @@ survives into the JSON.
 Two conventions worth knowing:
 
 - **Each step is charged `rate / periods`**, the same factor its return is
-  annualized by (252 here, 365 on the overview's calendar-daily curve) — not an
+  annualized by (252 here, 365 on the book view's calendar-daily curve) — not an
   actual/365 accrual over the calendar days the step spans. The accrual version
   pays interest for weekends a 252-day annualization does not count as elapsed
   time, which puts the two halves of the numerator on different calendars and

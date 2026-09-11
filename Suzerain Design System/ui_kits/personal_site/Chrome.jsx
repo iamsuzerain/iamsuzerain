@@ -44,7 +44,7 @@ function useDecode(target, duration = 400, startDelay = 0) {
 
 // ---------- static feed cache ----------
 // Every view fetches its own feeds on mount and the router unmounts a view the
-// moment you leave it, so the fetches ran again on the way back. ibkr → overview
+// moment you leave it, so the fetches ran again on the way back. ibkr → book
 // → ibkr pulled portfolio.json, benchmarks.json, nav-history.json and
 // riskfree.json down three times each — 430KB for the first load became 1.3MB
 // for two clicks, and benchmarks.json is 300KB of that on its own.
@@ -220,7 +220,7 @@ function Chrome({ children, cursorGlow = false, dim = false }) {
   );
 }
 
-// ---------- completed-quarter history (shared by the IBKR + overview charts) ----------
+// ---------- completed-quarter history (shared by the IBKR + book charts) ----------
 // Only whole quarters are offered. A quarter the data only partly covers would
 // still print as "q2 25" and read as a full-quarter number, quietly understating
 // it — so a quarter has to be covered end to end to appear.
@@ -261,13 +261,13 @@ function szQuarters(firstDate, lastDate) {
   return out.reverse();   // newest first — the one you most likely want
 }
 
-// ---------- shared series helpers (ibkr · polymarket · overview) ----------
-// The overview and the polymarket view chart the same Polymarket feed, so
+// ---------- shared series helpers (ibkr · polymarket · book) ----------
+// The book view and the polymarket view chart the same Polymarket feed, so
 // anything deciding *which days a range covers* or *how undated rewards get
 // spread* has to live in one place. It didn't, and the two copies drifted: the
-// overview ramped pre-history rewards from the raw feed's first row while the
+// book view ramped pre-history rewards from the raw feed's first row while the
 // polymarket view ramped from the first row that actually moved (182 days
-// later), and the overview cut its trailing window from Date.now() while the
+// later), and the book view cut its trailing window from Date.now() while the
 // polymarket view cut from the last real data point. The two errors partly
 // canceled, which is why the same 12mo P&L read as two numbers ~$57 apart
 // instead of something obviously broken.
@@ -283,7 +283,7 @@ function szFromEpochDay(day) {
 }
 
 // ---------- what a data point's date means ----------
-// Three feeds, three conventions, and the overview sums them on one day axis —
+// Three feeds, three conventions, and the book view sums them on one day axis —
 // so they have to be reconciled to a single meaning of "dated D".
 //
 // The reference is IBKR: build_nav_series reads EquitySummaryByReportDateInBase
@@ -341,7 +341,7 @@ function szPmSnapshotDay(iso) {
 //   - the likelier case: two wallets whose tails stopped at different hours, which
 //     szPm/pmSumPnlSeries unions into two intraday points on the same day.
 //
-// The overview already gets this for free — cmbSampleDaily walks a day axis and
+// The book view already gets this for free — cmbSampleDaily walks a day axis and
 // keeps the last value at or before each day. This puts the polymarket chart on the
 // same footing rather than drawing both points on one date. Safe as an
 // adjacent-only pass because szPmPointDay is monotonic non-decreasing in t.
@@ -495,7 +495,7 @@ function szPmBookExtend(series, bdRows, transfers, seam) {
   // below is scrape-to-scrape. Anchoring on the close and then stepping from the
   // scrape leaves 00:00-06:00 counted by neither — -$269.71 on the day this
   // landed, carried by the whole curve after it. It is the error pmScrapeEarned
-  // exists to prevent over in the overview, with the sign flipped: that one
+  // exists to prevent over in the book view, with the sign flipped: that one
   // measured the carry from the labeled day's close and double-counted the
   // stretch, this one skipped it.
   //
@@ -596,7 +596,7 @@ function szPmIncomeCurve(rows, lifeStartDay, total, endDay) {
   };
 }
 
-// ---------- $ / % units (overview · polymarket) ----------
+// ---------- $ / % units (book · polymarket) ----------
 // Both views chart cumulative *dollars*, so a percentage here is always "P&L
 // over a stated capital base" — never a time-weighted return. Dividing a whole
 // window by one base is a pure rescale: every curve keeps its exact shape and
@@ -652,7 +652,7 @@ function useKeptState(key, fallback, allowed) {
   return [value, set];
 }
 
-// The two page-wide switches — overview and ibkr — share one key. They are the
+// The two page-wide switches — book and ibkr — share one key. They are the
 // same control in the same place (the nav), so a reader who set one and moved
 // tabs would rightly read the other reverting as a bug. Polymarket's switch
 // governs a single panel and defaults the other way, so it keeps its own.
@@ -675,7 +675,7 @@ function UnitToggle({ value, onChange }) {
   );
 }
 
-// Where a switch governs a whole page — ibkr and overview — it used to sit in
+// Where a switch governs a whole page — ibkr and book — it used to sit in
 // that page's head, and the head scrolls away within a screen. Reading a
 // percentage eight panels down meant scrolling back to the top to see it in
 // dollars. The nav is the one strip that stays, so those two draw there. The
@@ -712,7 +712,7 @@ function UnitBar({ value, onChange, note }) {
 }
 
 // The nav side of the same slot. Null whenever the mounted view has no
-// page-wide unit to offer, which is every view but ibkr and overview.
+// page-wide unit to offer, which is every view but ibkr and book.
 function useUnitSlot() {
   const [slot, setSlot] = useState(SZ_UNIT_SLOT.cur);
   useEffect(() => {
@@ -801,7 +801,7 @@ function szRfAt(rows) {
 // — the same factor its return is annualized by. Not an actual/365 accrual over
 // the calendar days the step spans: that pays interest for weekends a 252-day
 // annualization does not count as elapsed time, which puts the numerator's two
-// halves on different calendars. One convention per series, so the overview's
+// halves on different calendars. One convention per series, so the book view's
 // calendar-daily curve passes 365 and the IBKR one 252. rf_steps in
 // scripts/ibkr-flex/fetch-ibkr.py is the same function; they have to agree or
 // the tiles and portfolio.json disagree about the same window.

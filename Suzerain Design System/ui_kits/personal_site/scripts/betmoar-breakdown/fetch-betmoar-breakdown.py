@@ -192,7 +192,7 @@ def main():
         },
         # Current Polymarket net asset value, summed across wallets: open-position
         # market value (portfolioValue) + idle USDC (usdcBalance). Used by the
-        # overview's capital-deployment bar to weigh Poly against IBKR NAV.
+        # book view's capital-deployment bar to weigh Poly against IBKR NAV.
         "balances": {
             "positions": sum_field("portfolioValue"),
             "cash":      sum_field("usdcBalance"),

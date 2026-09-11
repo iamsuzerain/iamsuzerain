@@ -21,7 +21,7 @@ Contract:
   TWR curve.
 
   `n` is the account's actual NAV that day — an absolute level, not a rebased
-  series, so it stitches verbatim with no seam alignment. The overview needs it
+  series, so it stitches verbatim with no seam alignment. The book view needs it
   because capital base cannot be recovered from P&L: deposits and transfers move
   NAV without being P&L, so base + cumulative P&L drifts from the real number by
   every flow since the baseline. Also optional per row.

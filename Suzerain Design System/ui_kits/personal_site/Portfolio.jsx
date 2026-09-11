@@ -6,7 +6,7 @@ const { useEffect: usePortEffect, useState: usePortState, useMemo: usePortMemo }
 // Chart machinery (Chart.jsx, loaded ahead of this file). The panels below own
 // their own bodies — overlays, warm-up rules, distribution bins — but the box,
 // the scales, the hover math and the gradient stops are shared with the
-// polymarket and overview views.
+// polymarket and book views.
 const {
   szSmoothPath: smoothPath, szFrame, szScales, szDomain, szAreaPath, szTicks,
   useChartHover, SzChartSvg, SzChartDefs, SzRule, SzCrosshair, SzTooltip,
@@ -160,7 +160,7 @@ const PF_MARK_NEG = '#a78bfa';
 const PF_RANGES = ['1M', '3M', 'QTD', '6M', 'YTD', '1Y', 'MAX'];
 const PF_RANGE_LABEL = { '1M': '1mo', '3M': '3mo', 'QTD': 'qtd', '6M': '6mo', 'YTD': 'ytd', '1Y': '12mo', 'MAX': 'max' };
 
-// Windowing is shared with the polymarket + overview views (Chrome.jsx), so a
+// Windowing is shared with the polymarket + book views (Chrome.jsx), so a
 // range picked on any of the three spans the same days.
 const pfRangeEnd = (range) => window.szRangeEnd(range);
 
@@ -475,7 +475,7 @@ const PF_ROLL_METRICS = {
 };
 
 // `periods` is the annualization factor for vol: 252 for a trading-day series
-// (IBKR), 365 for a calendar-day one (the overview, which includes weekends
+// (IBKR), 365 for a calendar-day one (the book view, which includes weekends
 // because prediction markets trade them).
 function pfRolling(perf, benchSeries, metric, periods = 252) {
   const spec = PF_ROLL_METRICS[metric];
@@ -617,7 +617,7 @@ function rebaseBenchmark(benchSeries, perfDates) {
 }
 
 // Colors, labels and ordering all come from the shared registry (SZ_BENCHES in
-// Chrome.jsx), so this chart, the overview's, and the picker's swatches cannot
+// Chrome.jsx), so this chart, the book view's, and the picker's swatches cannot
 // drift apart as tickers are added.
 const benchColor = (key) => (window.szBenchColor ? window.szBenchColor(key) : '#5eead4');
 const benchLabel = (key) => (window.szBenchLabel ? window.szBenchLabel(key) : key);
@@ -1441,7 +1441,7 @@ function Portfolio() {
   // Percent by default: this page's headline metric is TWR (the "1y" tile says
   // so), and the benchmark overlays are exact in percent where the dollar
   // versions have to assume a notional. $ is one click away — and once clicked
-  // it is remembered, here and on the overview tab, which share the key.
+  // it is remembered, here and on the book tab, which share the key.
   const [unit, setUnit] = window.useKeptState(
     window.SZ_UNIT_PREF, 'pct', window.SZ_UNIT_VALUES);
   // What the book is drawn against. SPX alone by default — it's the comparison
@@ -1767,11 +1767,11 @@ function Portfolio() {
 
 window.Portfolio = Portfolio;
 
-// Shared with the overview (Combined.jsx). In the production bundle each
+// Shared with the book view (Combined.jsx). In the production bundle each
 // component file is compiled to its own IIFE and concatenated, so top-level
 // declarations do not cross files — window is the channel, the same one
 // Chrome.jsx uses for Cursor/useDecode. Callers supply a perfSeries in this
-// file's shape ({ d, v } where v is cumulative return as a ratio); the overview
+// file's shape ({ d, v } where v is cumulative return as a ratio); the book view
 // adapts its dollar series to that shape rather than these re-deriving it.
 window.SZ_RISK = {
   ReturnDistribution,

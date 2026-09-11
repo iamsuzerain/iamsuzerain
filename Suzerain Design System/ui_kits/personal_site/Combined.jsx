@@ -1179,7 +1179,7 @@ function cmbCorrelation(pnlHistory, pmPts, pmNavHistory) {
 // ---------- adapters onto the shared risk panels (window.SZ_RISK) ----------
 // Portfolio.jsx owns the distribution / rolling / capture / drawdown-episode
 // panels and expects a perfSeries: { d, v } with v a cumulative return *ratio*.
-// The overview carries cumulative *dollars* against a notional instead, so
+// The book view carries cumulative *dollars* against a notional instead, so
 // convert rather than reimplement — equity is notional + v, and rebasing the
 // equity curve leaves daily returns unchanged.
 function cmbPerfSeries(series, notional) {
@@ -1952,7 +1952,7 @@ function Combined({ setView }) {
   const HistoryPicker = window.HistoryPicker;
   const BenchPicker = window.BenchPicker;
   const risk = cmbRisk(win.series, win.notional, primary, data.rf);
-  // Shared risk panels, on the combined equity curve. The overview samples every
+  // Shared risk panels, on the combined equity curve. The book view samples every
   // calendar day (prediction markets trade weekends), so vol annualizes on 365.
   const SZ = window.SZ_RISK || {};
   const cPerf = cmbPerfSeries(win.series, win.notional);

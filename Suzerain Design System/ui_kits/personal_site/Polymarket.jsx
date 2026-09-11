@@ -9,7 +9,7 @@ const {
 } = React;
 
 // Chart machinery (Chart.jsx, loaded ahead of this file) — the same box,
-// scales, hover math and gradient stops the ibkr and overview charts use.
+// scales, hover math and gradient stops the ibkr and book charts use.
 const {
   szSmoothPath: smoothPath, szFrame, szScales, szDomain, szAreaPath, szTicks,
   useChartHover, SzChartSvg, SzChartDefs, SzRule, SzCrosshair, SzCrosshairLine,
@@ -60,13 +60,13 @@ function pmRel(iso) {
 }
 
 // ---------- live fetch + shape ----------
-// Shared with the overview, which anchors its rewards ramp on the same cut
+// Shared with the book view, which anchors its rewards ramp on the same cut
 // (szPnlLifeStartDay) without trimming the series it charts.
 function pmTrimFlat(series) {
   if (!series.length) return series;
   return series.slice(window.szPnlFirstMoveIndex(series));
 }
-// Plot-point ceiling shared with the overview (CMB_CHART_MAX_POINTS). Sized so
+// Plot-point ceiling shared with the book view (CMB_CHART_MAX_POINTS). Sized so
 // daily resolution survives ~11 years of history rather than reverting to
 // every-other-day partway through 2027.
 const PM_CHART_MAX_POINTS = 2000;
@@ -116,7 +116,7 @@ async function pmFetchBreakdown() {
         uma:       bd.totals.uma,
         fees:      bd.totals.fees,
         // Full Polymarket NAV (open positions + idle USDC) from the daily
-        // snapshot; used as portfolio value so it matches the overview's
+        // snapshot; used as portfolio value so it matches the book view's
         // capital-deployment bar exactly.
         nav:       bd.balances ? bd.balances.nav : null,
         source:    'betmoar',
@@ -148,7 +148,7 @@ async function pmFetchBreakdown() {
 // ---------- cumulative-pnl snapshot (polymarket-pnl daily cron) ----------
 // Already summed across wallets by fetch-polymarket-pnl.py, same {t,p} shape as
 // the live feed, and same origin — one round trip against a static file rather
-// than a cold computation on user-pnl-api. The overview has read this for a
+// than a cold computation on user-pnl-api. The book view has read this for a
 // while as a last-resort fallback; here it is the opening hand, so the three
 // P&L figures and the chart have something true to draw on the first tick.
 async function pmFetchPnlSnapshot() {
@@ -404,12 +404,12 @@ function pmBuild(perWallet, pnl, breakdown) {
   //
   // This used to carry the scrape forward by (lifetime now - lifetime at the
   // scrape), so the panel moved intraday rather than sitting at the morning's
-  // reading, and so it tracked the overview's capital-deployment bar, which
+  // reading, and so it tracked the book view's capital-deployment bar, which
   // extends by the same quantity. Both halves of that argument assumed the live
   // user-pnl figure was true intraday, and it is not: a neg-risk conversion
   // corrupts it until the market closes (see szPmBookExtend). On 2026-08-27 that
   // carry put $20,046 of value on this tile that the book did not have, and the
-  // same $20,046 on the overview's bar.
+  // same $20,046 on the book view's bar.
   //
   // A stale but measured NAV beats a live but wrong one, and the two views agree
   // trivially once both read the scrape instead of each rebuilding a carry. The
@@ -421,7 +421,7 @@ function pmBuild(perWallet, pnl, breakdown) {
   const realized = +positions.reduce((a, p) => a + p.realized, 0).toFixed(2);
 
   const trimmed = pmTrimFlat(summedPnl);
-  // One point per day, matching the ibkr and overview charts. At 150 the
+  // One point per day, matching the ibkr and book charts. At 150 the
   // ~425-point series took every 2nd day, putting this chart on a different
   // time base to the others. The cap is 2000 rather than something tighter
   // because floor(len/target) only steps to 2 at 2x the target: 400 would hold
@@ -478,7 +478,7 @@ function fmtDate(iso) {
   const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1];
   return `${mo} ${d}, ${y}`;
 }
-// Span-aware x-axis label, same three modes the overview chart uses: 'day' ->
+// Span-aware x-axis label, same three modes the book chart uses: 'day' ->
 // "Jun 12" (short windows, where every tick would otherwise read the same
 // month), 'month' -> "Jun" (within one year), 'monthyear' -> "Jun 26".
 function pmAxisLabel(iso, mode) {
@@ -514,10 +514,10 @@ function pmUSDCompact(n) {
 // `total` (the live breakdown snapshot) anchors the last point, so the curve
 // still ends exactly on the lifetime-pnl headline even when breakdown.json is a
 // cron cycle fresher than the history file.
-// Both the sum and the curve live in Chrome.jsx now, shared with the overview.
+// Both the sum and the curve live in Chrome.jsx now, shared with the book view.
 // They were separate implementations that disagreed twice over: on whether `uma`
 // counted as income, and on where the pre-history ramp starts — this copy
-// measured it in *series points* from the trimmed first date, the overview in
+// measured it in *series points* from the trimmed first date, the book view in
 // *days* from the raw feed's first row, so identical inputs produced two
 // different 12mo figures.
 const pmRewardsNet = (r) => window.szPmIncomeNet(r);
@@ -532,11 +532,11 @@ function pmRewardsCurve(dates, hist, total, lifeStartDay) {
 
 // ---------- range windowing ----------
 // Same vocabulary (and the same completed-quarter picker) as the ibkr and
-// overview pages, so a range picked here spans what it spans there.
+// book pages, so a range picked here spans what it spans there.
 const PM_RANGES = ['1M', '3M', 'QTD', '6M', 'YTD', '1Y', 'MAX'];
 const PM_RANGE_LABEL = { '1M': '1mo', '3M': '3mo', 'QTD': 'qtd', '6M': '6mo', 'YTD': 'ytd', '1Y': '12mo', 'MAX': 'all-time' };
 
-// Both live in Chrome.jsx, shared with the overview.
+// Both live in Chrome.jsx, shared with the book view.
 const pmRangeEnd = (range) => window.szRangeEnd(range);
 const pmRangeCutoff = (range, last) => window.szRangeCutoff(range, last);
 
@@ -691,11 +691,11 @@ function PmSpark({ series, unit }) {
   const { y0, y1, lo: min, hi: max } = szDomain(values, { pad: 0.08, floor: 1, min: 0 });
   const { x, y } = szScales(F, series.length, y0, y1);
 
-  // Splined, like the ibkr and overview curves. This series is spikier than
+  // Splined, like the ibkr and book curves. This series is spikier than
   // theirs — resolutions land as single-day jumps, and 16 of the ~465 segments
   // move the curve more than 2px off the straight chord where none of ibkr's
   // do — so the rounding is actually visible here rather than decorative. It
-  // reads better all the same, and the overview already drew this same feed
+  // reads better all the same, and the book view already drew this same feed
   // splined, so straight segments here were the odd page out rather than a
   // principle the site held.
   const line = smoothPath(series.map((_, i) => x(i)), series.map(p => y(p.v)));
@@ -1649,7 +1649,7 @@ function Polymarket() {
   // seam, where money moved in would otherwise walk into the curve as money
   // earned. Inert before it, and inert on any day with no transfer.
   const [pmTransfers, setPmTransfers] = usePmState(null);
-  // Defaults to the trailing year like the ibkr and overview charts — the
+  // Defaults to the trailing year like the ibkr and book charts — the
   // lifetime curve is still one click away under MAX.
   const [range, setRange] = usePmState('1Y');
   // Dollars by default, and unlike the other two views this governs the chart
@@ -1658,7 +1658,7 @@ function Polymarket() {
   // back past PM_PCT_START by definition, so they have no honest percent and
   // stay in dollars under both settings.
   // Remembered under its own key rather than the page-wide one the other two
-  // views share: a reader who set the overview to percent has said nothing
+  // views share: a reader who set the book view to percent has said nothing
   // about this panel, whose percent covers a shorter history than its dollars.
   const [unit, setUnit] = window.useKeptState(
     'unit.pm', 'usd', window.SZ_UNIT_VALUES);
@@ -1708,7 +1708,7 @@ function Polymarket() {
         setNavRows(window.szPmDateSnapshotRows(j.rows));
       })
       .catch(() => {});
-    // Same ledger the overview reads for its benchmark notional; here it is the
+    // Same ledger the book view reads for its benchmark notional; here it is the
     // flow term in the book-value walk.
     window.szJson('data/content.json')
       .then(j => {
@@ -1809,7 +1809,7 @@ function Polymarket() {
   //
   // pnlSeries is already past pmTrimFlat, so its first date *is* the day the
   // book started being P&L history — the same anchor szPnlLifeStartDay hands the
-  // overview off the raw feed.
+  // book view off the raw feed.
   const rewardsSeam = (hist && hist.rows && hist.rows.length) ? hist.rows[0].d : null;
   const sparkSeries = (pnlSeries && pnlSeries.length > 1 && bdExtra)
     ? (() => {
@@ -1935,7 +1935,7 @@ function Polymarket() {
                 )}
                 {/* Sits with the range buttons, in this panel's head, because
                     it governs this panel and nothing else on the page. The ibkr
-                    and overview switches ride in the nav instead — they govern
+                    and book switches ride in the nav instead — they govern
                     a whole page, and a page-wide control in a panel head is the
                     thing worth hoisting. This one is not. */}
                 {PmUnitToggle && pctReady && (

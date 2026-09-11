@@ -2,7 +2,7 @@
 """
 build-pm-nav-history.py
 
-Daily Polymarket NAV, so the overview's capital base can value the Polymarket
+Daily Polymarket NAV, so the book view's capital base can value the Polymarket
 side at what it is actually worth instead of what was sent to it.
 
 Why this exists: the base used to read the manual IBKR->Polymarket transfer
