@@ -36,7 +36,7 @@ function Nav({ view }) {
   const NavUnitToggle = window.UnitToggle;
   const items = [
     { id: 'hero', label: 'home' },
-    { id: 'overview', label: 'overview' },
+    { id: 'book', label: 'book' },
     { id: 'ibkr', label: 'ibkr' },
     { id: 'polymarket', label: 'polymarket' },
     { id: 'politics', label: 'politics' },

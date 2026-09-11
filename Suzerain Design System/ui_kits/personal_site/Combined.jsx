@@ -1922,15 +1922,15 @@ function Combined({ setView }) {
 
   if (err) return (
     <section className="sz-prose">
-      <div className="sz-kicker">◆ overview</div>
-      <h2 className="sz-h2">couldn't build overview feed.</h2>
+      <div className="sz-kicker">◆ book</div>
+      <h2 className="sz-h2">couldn't build book feed.</h2>
       <p><code>{err}</code></p>
       <p className="sz-dim">needs <code>data/portfolio.json</code> (daily IBKR cron). polymarket is fetched live.</p>
     </section>
   );
   if (!data) return (
     <section className="sz-prose">
-      <div className="sz-kicker">◆ overview · live</div>
+      <div className="sz-kicker">◆ book · live</div>
       <h2 className="sz-h2">merging feeds<Cursor /></h2>
     </section>
   );
@@ -2020,7 +2020,7 @@ function Combined({ setView }) {
     <section className="pf-wrap cmb-view">
       <div className="pf-head">
         <div>
-          <div className="sz-kicker">◆ overview · ibkr + polymarket</div>
+          <div className="sz-kicker">◆ book · ibkr + polymarket</div>
           <h2 className="sz-h2 pm-headline">
             <span>{pct ? cmbPctFmt(sLast.v) : `${pos ? '+' : ''}${cmbUSD(wTotal)}`}</span>
             <span className="pf-currency">{range === '1Y' ? 'trailing 12mo pnl' : `${cmbRangeLabel(range)} pnl`}</span>

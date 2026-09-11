@@ -9,7 +9,11 @@
 // keys stay readable here because they were live URLs: anything already
 // bookmarked, or linked from a post, still lands on the right view instead of
 // falling through to the hero.
-const ROUTE_ALIASES = { combined: 'overview', portfolio: 'ibkr' };
+//
+// `overview` then became `book`: the page is the whole book, with ibkr and
+// polymarket as its parts, and it carries more analysis than either of them —
+// "overview" undersold it as a summary to skim on the way to the detail.
+const ROUTE_ALIASES = { combined: 'book', overview: 'book', portfolio: 'ibkr' };
 
 function parseRoute() {
   const parts = window.location.hash.replace(/^#\/?/, '').split('/');
@@ -25,7 +29,7 @@ function parseRoute() {
 // landing page is the site, and "suzerain · suzerain" says nothing twice.
 const ROUTE_TITLES = {
   hero: null,
-  overview: 'overview',
+  book: 'book',
   ibkr: 'ibkr',
   polymarket: 'polymarket',
   politics: 'politics',
@@ -69,14 +73,14 @@ function App() {
     hero: <Hero/>,
     ibkr: <Portfolio/>,
     polymarket: <Polymarket/>,
-    overview: <Combined setView={setView}/>,
+    book: <Combined setView={setView}/>,
     politics: <Politics scope={route.param}/>,
     about: <About/>,
     thoughts: <Writing slug={route.param}/>,
   };
   const view = views[route.view] ? route.view : 'hero';
   // Data-heavy views fog the city so tables stay readable.
-  const dim = view === 'ibkr' || view === 'polymarket' || view === 'overview' || view === 'politics';
+  const dim = view === 'ibkr' || view === 'polymarket' || view === 'book' || view === 'politics';
   // Every route is a shareable URL, so every route needs a name. Without this the
   // tab strip, the history menu and every bookmark read "suzerain" and none of
   // them can tell a post from the ibkr charts.

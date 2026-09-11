@@ -25,7 +25,7 @@ The aesthetic takes cues from **lo-fi cyberpunk illustration**: rain-slick Tokyo
 
 **Two registers, kept separate.** Every rule below depends on this one.
 
-- **Interface** — nav, headings, buttons, table columns, stat kickers, meta rows. Lowercase, always: `home` · `overview` · `ibkr` · `polymarket` · `thoughts` · `about` · `qty` · `roi` · `profit by source` · `peak-to-trough` · `annualized · twr`. Not sentence case — *lower* case. A capital in the chrome reads as a slip.
+- **Interface** — nav, headings, buttons, table columns, stat kickers, meta rows. Lowercase, always: `home` · `book` · `ibkr` · `polymarket` · `thoughts` · `about` · `qty` · `roi` · `profit by source` · `peak-to-trough` · `annualized · twr`. Not sentence case — *lower* case. A capital in the chrome reads as a slip.
 - **Prose** — log entries, post bodies, summaries, the bio. Ordinary sentence case with ordinary punctuation, because it is ordinary writing: "Probably one of my weakest trading weeks of the year. Didn't recognize the oncoming train after FOMC caused a vanna push…"
 
 Don't blend them. Lowercase prose reads affected at paragraph length; sentence-case chrome reads like a dashboard someone bought.
@@ -38,7 +38,7 @@ Put another way — a claim about **purpose** can go in the masthead. A claim ab
 
 **Headings take a terminal period.** The site's most consistent tic and the one most worth keeping:
 
-`i am suzerain.` · `i'm here to write the future.` · `notes from the desk.` · `no such post.` · `couldn't reach polymarket.` · `couldn't build overview feed.`
+`i am suzerain.` · `i'm here to write the future.` · `notes from the desk.` · `no such post.` · `couldn't reach polymarket.` · `couldn't build book feed.`
 
 The period closes the statement and stops a lowercase heading reading as a fragment. One outlier ships today: `ENDORSEMENTS.` on the politics view, the only ALL-CAPS heading on the site.
 
@@ -90,7 +90,7 @@ Real lines from the site, not illustrations.
 
 > _log entry:_ EOQ. Despite making 5 figures on geopolitical and election predictions, we ended up with a massive drawdown on Polymarket due to touch options on oil, a tradfi position.
 
-> _states:_ `no such post.` · `couldn't build overview feed.` · `fetching positions▋`
+> _states:_ `no such post.` · `couldn't build book feed.` · `fetching positions▋`
 
 ---
 
@@ -296,7 +296,7 @@ These are part of the iconography and appear throughout the system:
         ├── About.jsx
         ├── Portfolio.jsx     — IBKR portfolio view
         ├── Polymarket.jsx    — Polymarket P&L view
-        ├── Combined.jsx      — combined IBKR + Polymarket overview
+        ├── Combined.jsx      — combined IBKR + Polymarket book
         ├── Writing.jsx       — thoughts index + post reader
         ├── data/             — content.json, portfolio.json, polymarket-*.json, benchmarks.json, posts/
         └── scripts/          — data refreshers (ibkr-flex, polymarket-pnl, betmoar-breakdown, benchmarks) + new-post.py
